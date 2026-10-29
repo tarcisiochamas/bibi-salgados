@@ -6,9 +6,10 @@ import {
   dataComDia, lerLocal, gravarLocal, copiarTexto,
 } from './util.js';
 import {
-  textoQtd, totaisPedido, formasAntecipadas, PIX_ANTECIPADO, CARTAO_PELO_LINK,
+  textoQtd, totaisPedido, formasAntecipadas, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
 } from './calculos.js';
 import { lerChavePix, codigoPix, desenharQrPix } from './pix.js';
+import { criarCobranca, lerRetorno, conferirPagamento } from './infinitepay.js';
 import { icone } from './icones.js';
 
 const CHAVE_CARRINHO = 'bibi-salgados:carrinho';
@@ -19,6 +20,7 @@ let config;
 let produtos = [];
 let carrinho = lerLocal(CHAVE_CARRINHO, {}) || {};
 let codigo = codigoPedido();
+let pedidoEnviado = null;
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
 
@@ -38,6 +40,12 @@ async function iniciar() {
   }
   atualizar(store.dados);
   store.aoMudar(atualizar);
+  // Cliente voltando da página de pagamento da InfinitePay.
+  const retorno = lerRetorno(location.search);
+  if (retorno) {
+    history.replaceState(null, '', location.pathname);
+    mostrarRetorno(retorno);
+  }
 }
 
 function atualizar(dados) {
@@ -293,6 +301,7 @@ function montarMensagem(pedido) {
 function textoPagamento(forma) {
   if (forma === PIX_ANTECIPADO) return 'Pix antes da entrega (mando o comprovante por aqui)';
   if (forma === CARTAO_PELO_LINK) return 'Cartão de crédito antes da entrega (pode me mandar o link de pagamento)';
+  if (forma === CARTAO_NO_SITE) return 'Cartão de crédito pelo site (vou pagar agora)';
   return forma;
 }
 
@@ -391,10 +400,11 @@ function desenharFinalizar() {
   atualizarFinalizar();
 }
 
-const ROTULO_FORMA = { [PIX_ANTECIPADO]: 'Pix', [CARTAO_PELO_LINK]: 'Cartão de crédito' };
+const ROTULO_FORMA = { [PIX_ANTECIPADO]: 'Pix', [CARTAO_PELO_LINK]: 'Cartão de crédito', [CARTAO_NO_SITE]: 'Cartão de crédito' };
 const DICA_FORMA = {
   [PIX_ANTECIPADO]: 'Depois de enviar o pedido, aparece o código Pix com o valor certo. O pedido é confirmado quando o pagamento cai.',
   [CARTAO_PELO_LINK]: 'A gente manda o link para pagar no cartão pelo WhatsApp. O pedido é confirmado depois do pagamento.',
+  [CARTAO_NO_SITE]: 'Depois de enviar o pedido, você paga aqui mesmo, na página segura da InfinitePay, no crédito em até 12x.',
 };
 
 function htmlResumo(itens) {
@@ -482,6 +492,7 @@ function mostrarEnviado(pedido, mensagem) {
     : '';
   let pagamento = '';
   if (pix) pagamento = htmlPagarPix(pedido, pix);
+  else if (forma === CARTAO_NO_SITE) pagamento = htmlPagarCartao(pedido);
   else if (forma === CARTAO_PELO_LINK) {
     pagamento = '<p class="aviso-pagamento">A gente te manda o link para pagar no cartão pelo WhatsApp. O pedido é confirmado depois do pagamento.</p>';
   } else if (forma === 'Pix' && config.chavePix) {
@@ -505,11 +516,15 @@ function mostrarEnviado(pedido, mensagem) {
   $('#corpo-pedido').scrollTop = 0;
   janela.scrollTop = 0;
   if (pix) desenharQrPix($('#pix-qr'), pix);
+  if (forma === CARTAO_NO_SITE) {
+    pedidoEnviado = pedido;
+    prepararCartao();
+  }
 }
 
 function htmlPagarPix(pedido, codigo) {
   return `
-    <section class="pix-pagar" aria-labelledby="pix-titulo">
+    <section class="pagar-antes" aria-labelledby="pix-titulo">
       <h4 id="pix-titulo">Pague ${brl(pedido.total)} com Pix</h4>
       <p>No app do seu banco, escolha <strong>Pix copia e cola</strong> e cole o código abaixo. O valor já vem preenchido.</p>
       <div class="pix-qr" id="pix-qr"></div>
@@ -517,6 +532,86 @@ function htmlPagarPix(pedido, codigo) {
       <button type="button" class="btn" data-acao="copiar-pix">${icone('copiar')} Copiar código Pix</button>
       <p class="suave">Depois de pagar, mande o comprovante no WhatsApp. O pedido é confirmado quando o pagamento cai.</p>
     </section>`;
+}
+
+function htmlPagarCartao(pedido) {
+  return `
+    <section class="pagar-antes" aria-labelledby="cartao-titulo">
+      <h4 id="cartao-titulo">Pague ${brl(pedido.total)} no cartão</h4>
+      <p>O pagamento abre na página segura da InfinitePay, no crédito em até 12x. Depois você volta para cá.</p>
+      <div class="cartao-acao" id="cartao-acao" aria-live="polite"></div>
+    </section>`;
+}
+
+function enderecoDaLoja() {
+  return `${location.origin}${location.pathname}`;
+}
+
+// Cria a cobrança na InfinitePay enquanto o cliente manda a mensagem no WhatsApp.
+async function prepararCartao() {
+  const pedido = pedidoEnviado;
+  const alvo = () => $('#cartao-acao');
+  if (!pedido || !alvo()) return;
+  alvo().innerHTML = '<button type="button" class="btn" disabled>Preparando o pagamento…</button>';
+  try {
+    const url = await criarCobranca({ tag: config.infiniteTag, pedido, voltarPara: enderecoDaLoja() });
+    if (alvo() && pedidoEnviado === pedido) {
+      alvo().innerHTML = `<a class="btn" href="${esc(url)}">${icone('cartao')} Pagar com cartão</a>`;
+    }
+  } catch (e) {
+    console.warn('A página de pagamento não abriu:', e);
+    if (alvo() && pedidoEnviado === pedido) {
+      alvo().innerHTML = `
+        <p class="aviso-pagamento">Não conseguimos abrir o pagamento agora. Tente de novo ou peça o link pelo WhatsApp.</p>
+        <button type="button" class="btn btn-contorno" data-acao="tentar-cartao">Tentar de novo</button>`;
+    }
+  }
+}
+
+// Volta da InfinitePay: confere o pagamento e oferece mandar o comprovante.
+async function mostrarRetorno(retorno) {
+  const janela = $('#janela-pedido');
+  janela.dataset.enviado = '1';
+  $('#titulo-pedido').textContent = `Pedido #${retorno.codigo}`;
+  const aviso = `Olá! Paguei o pedido #${retorno.codigo} pelo site.${retorno.comprovante ? ` Comprovante: ${retorno.comprovante}` : ''}`;
+  $('#corpo-pedido').innerHTML = `
+    <div class="enviado">
+      <h3>Pagamento</h3>
+      <p class="aviso-pagamento" id="retorno-situacao" role="status">Conferindo o pagamento com a InfinitePay…</p>
+      <p class="suave" id="retorno-texto"></p>
+      <div class="acoes-linha">
+        ${retorno.comprovante ? `<a class="btn btn-contorno" href="${esc(retorno.comprovante)}" target="_blank" rel="noopener">Ver comprovante</a>` : ''}
+        ${config.whatsapp ? `<a class="btn btn-whats" href="${esc(linkWhats(config.whatsapp, aviso))}" target="_blank" rel="noopener">${icone('conversa')} Mandar comprovante no WhatsApp</a>` : ''}
+      </div>
+    </div>`;
+  $('#rodape-pedido').innerHTML = '<button type="button" class="btn btn-contorno btn-largo" data-acao="fechar">Voltar ao cardápio</button>';
+  if (!janela.open) janela.showModal();
+
+  let resultado = null;
+  if (config.infiniteTag) {
+    try {
+      resultado = await conferirPagamento({ tag: config.infiniteTag, retorno });
+    } catch (e) {
+      console.warn('Não deu para conferir o pagamento:', e);
+    }
+  }
+  const situacao = $('#retorno-situacao');
+  if (!situacao) return;
+  if (resultado?.pago) {
+    const parcelas = resultado.parcelas > 1 ? ` em ${resultado.parcelas}x` : '';
+    const meio = resultado.meio === 'pix' ? ' no Pix' : ' no cartão';
+    situacao.className = 'pagamento-ok';
+    situacao.textContent = resultado.valor > 0
+      ? `Pagamento aprovado: ${brl(resultado.valor)}${meio}${parcelas}.`
+      : `Pagamento aprovado${meio}${parcelas}.`;
+    $('#retorno-texto').textContent = 'Obrigado! A loja já recebeu o aviso do pagamento e confirma o pedido pelo WhatsApp.';
+  } else if (resultado) {
+    situacao.textContent = 'O pagamento ainda não aparece como aprovado.';
+    $('#retorno-texto').textContent = 'Se você concluiu o pagamento, mande o comprovante no WhatsApp que a gente confere.';
+  } else {
+    situacao.textContent = 'Você voltou da página de pagamento.';
+    $('#retorno-texto').textContent = 'Se o pagamento foi concluído, a loja recebe o aviso. Se quiser, mande o comprovante no WhatsApp.';
+  }
 }
 
 function abrirFinalizar() {
@@ -562,6 +657,8 @@ document.addEventListener('click', async (e) => {
     }
   } else if (acao === 'abrir-pedido') {
     abrirFinalizar();
+  } else if (acao === 'tentar-cartao') {
+    prepararCartao();
   } else if (acao === 'fechar') {
     $('#janela-pedido').close();
   } else if (acao === 'copiar-pix') {

@@ -287,7 +287,16 @@ body::before {
   color: var(--info);
   font-weight: 600;
 }
-.pix-pagar {
+.pagamento-ok {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: var(--raio);
+  background: var(--ok-fundo);
+  color: var(--ok);
+  font-weight: 700;
+}
+.cartao-acao { display: grid; gap: 0.75rem; justify-items: start; }
+.pagar-antes {
   display: grid;
   gap: 0.75rem;
   width: 100%;
@@ -295,7 +304,7 @@ body::before {
   border: 1.5px solid var(--linha);
   border-radius: var(--raio);
 }
-.pix-pagar h4 { font-size: 1.15rem; }
+.pagar-antes h4 { font-size: 1.15rem; }
 .pix-qr { width: 200px; justify-self: center; }
 .pix-qr svg { display: block; width: 100%; height: auto; border-radius: 8px; }
 .pix-codigo {

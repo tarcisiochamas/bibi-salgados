@@ -11,9 +11,10 @@ import {
   STATUS, STATUS_ABERTOS, STATUS_A_PRODUZIR, PROXIMO_STATUS, porId, custoPorUnidadeBase, calcularFicha,
   custoDoProduto, analisarPreco, totaisPedido, resumoItens, producaoDasDatas, ingredientesDaProducao,
   quantidadeLegivel, resumoDoMes, aReceber, clientesDosPedidos, dataDoRecebimento,
-  formasAntecipadas, aguardandoPagamento, PIX_ANTECIPADO, CARTAO_PELO_LINK,
+  formasAntecipadas, aguardandoPagamento, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
 } from './calculos.js';
 import { lerChavePix, codigoPix } from './pix.js';
+import { lerInfiniteTag, criarCobranca, explicarErro } from './infinitepay.js';
 import { icone } from './icones.js';
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -858,8 +859,13 @@ function telaAjustes() {
         <fieldset class="secao-janela" id="aj-cobrar-formas" style="border:0;padding:0;margin:0" ${c.cobrarAntes ? '' : 'hidden'}>
           <legend class="rotulo" style="margin-bottom:.6rem">Como o cliente pode pagar</legend>
           <label class="check"><input type="checkbox" name="cobrarAntesPix" ${c.cobrarAntesPix !== false ? 'checked' : ''}> Pix: o site mostra o código copia e cola com o valor do pedido</label>
-          <label class="check"><input type="checkbox" name="cobrarAntesCartao" ${c.cobrarAntesCartao !== false ? 'checked' : ''}> Cartão de crédito: você manda um link de pagamento pelo WhatsApp</label>
-          <small class="suave">O link de cartão é criado no app da sua maquininha ou do banco (Stone, InfinitePay, Mercado Pago, PagBank e outros), e cada um cobra a própria taxa.</small>
+          <label class="check"><input type="checkbox" name="cobrarAntesCartao" ${c.cobrarAntesCartao !== false ? 'checked' : ''}> Cartão de crédito</label>
+          <div class="sub-opcao" id="aj-cartao" ${c.cobrarAntesCartao !== false ? '' : 'hidden'}>
+            <label class="campo"><span>InfiniteTag da conta InfinitePay (opcional)</span>
+              <input name="infiniteTag" id="aj-infinitetag" value="${esc(c.infiniteTag ? `$${c.infiniteTag}` : '')}" placeholder="$suatag" autocapitalize="off" autocomplete="off" spellcheck="false">
+              <small id="aj-tag-dica">${esc(dicaInfiniteTag(c.infiniteTag))}</small>
+            </label>
+          </div>
           <p class="aviso-ajuste" id="aj-cobrar-aviso" ${avisoCobrarAntes(c) ? '' : 'hidden'}>${esc(avisoCobrarAntes(c))}</p>
         </fieldset>
       </section>
@@ -909,6 +915,14 @@ function dicaChavePix(texto) {
     : 'Não reconhecemos essa chave. Use CPF, CNPJ, celular com DDD, e-mail ou chave aleatória.';
 }
 
+function dicaInfiniteTag(texto) {
+  if (!String(texto || '').trim()) {
+    return 'Sem a InfiniteTag, você manda um link de pagamento pelo WhatsApp, criado no app da maquininha ou do banco (Stone, InfinitePay, Mercado Pago, PagBank e outros). Com ela, o cliente paga o cartão no próprio site.';
+  }
+  if (!lerInfiniteTag(texto)) return 'Essa InfiniteTag não parece certa. Copie como aparece no app da InfinitePay, por exemplo $bibisalgados.';
+  return 'O cliente paga no site, pela página da InfinitePay, no crédito em até 12x. Na conta, ligue o Checkout Integrado: app da InfinitePay → Vendas → Checkout → Configurações. A InfinitePay cobra a taxa dela em cada venda.';
+}
+
 function avisoCobrarAntes(c) {
   if (!c.cobrarAntes) return '';
   if (!c.cobrarAntesPix && !c.cobrarAntesCartao) return 'Escolha pelo menos uma forma. Sem nenhuma, o site continua cobrando na entrega.';
@@ -929,6 +943,8 @@ function atualizarAjustesPagamento() {
     chavePix: f.chavePix.value,
   };
   $('#aj-pix-dica').textContent = dicaChavePix(c.chavePix);
+  $('#aj-tag-dica').textContent = dicaInfiniteTag(f.infiniteTag.value);
+  $('#aj-cartao').hidden = !c.cobrarAntesCartao;
   $('#aj-cobrar-formas').hidden = !c.cobrarAntes;
   const aviso = avisoCobrarAntes(c);
   $('#aj-cobrar-aviso').hidden = !aviso;
@@ -972,6 +988,7 @@ function salvarAjustes() {
     cobrarAntes: f.cobrarAntes.checked,
     cobrarAntesPix: f.cobrarAntesPix.checked,
     cobrarAntesCartao: f.cobrarAntesCartao.checked,
+    infiniteTag: lerInfiniteTag(f.infiniteTag.value),
     cmvAlvo: cmv > 0 && cmv < 100 ? cmv / 100 : 0.35,
   });
   ui.ajustesSujo = false;
@@ -1162,7 +1179,12 @@ function abrirPedido(id) {
     <div class="secao-janela">
       <h3>Mensagens prontas para o cliente</h3>
       <div id="ped-mensagens"></div>
+      <div class="secao-janela" id="ped-link-cartao"></div>
     </div>`;
+
+  // Link de pagamento no cartão pela InfinitePay, criado aqui mesmo.
+  let linkCartao = '';
+  let totalDoLink = 0;
 
   function htmlItem(it, i) {
     return `
@@ -1219,11 +1241,52 @@ function abrirPedido(id) {
       const codigo = codigoPix({ chave: chave.chave, nome: config().nome, cidade: config().cidade, valor: total, identificador: p.codigo });
       return `${base} Para confirmar, pague com este Pix copia e cola:\n\n${codigo}`;
     }
-    if (valor('forma') === CARTAO_PELO_LINK) return `${base} Segue o link para pagar no cartão: `;
+    if (linkCartao) return `${base} Para pagar no cartão, em até 12x, é só usar este link: ${linkCartao}`;
+    if ([CARTAO_PELO_LINK, CARTAO_NO_SITE].includes(valor('forma'))) return `${base} Segue o link para pagar no cartão: `;
     return `${base}${pix} Qualquer dúvida, é só chamar.`;
   }
 
+  function desenharLinkCartao() {
+    const alvo = $('#ped-link-cartao');
+    if (!config().infiniteTag || campo('pago').checked) {
+      alvo.innerHTML = '';
+      return;
+    }
+    alvo.innerHTML = linkCartao
+      ? `<label class="campo"><span>Link de pagamento no cartão</span><input id="ped-link" value="${esc(linkCartao)}" readonly></label>
+         <div class="acoes"><button type="button" class="btn btn-pequeno btn-contorno" data-j="copiar-link">${icone('copiar')} Copiar link</button></div>`
+      : `<div class="acoes"><button type="button" class="btn btn-pequeno btn-contorno" data-j="criar-link">${icone('cartao')} Criar link de pagamento no cartão</button></div>
+         <small class="suave">O cliente paga pela InfinitePay, no crédito em até 12x, e o link entra na mensagem "Cobrar".</small>`;
+  }
+
+  async function criarLinkCartao(botao) {
+    const t = totaisAtuais();
+    if (!p.itens.length || t.total < 1) return erroNaJanela('Ponha os itens do pedido antes de criar o link. O valor mínimo é R$ 1,00.');
+    botao.disabled = true;
+    botao.textContent = 'Criando o link…';
+    try {
+      linkCartao = await criarCobranca({
+        tag: config().infiniteTag,
+        pedido: { ...p, ...t, entrega: { tipo: valor('tipo') } },
+        voltarPara: new URL('index.html', location.href).href,
+      });
+      totalDoLink = t.total;
+      desenharLinkCartao();
+      desenharMensagens();
+      aviso('Link criado. Ele já está na mensagem "Cobrar".');
+    } catch (e) {
+      console.warn(e);
+      erroNaJanela(explicarErro(e));
+      desenharLinkCartao();
+    }
+  }
+
   function desenharMensagens() {
+    if (linkCartao && Math.abs(totaisAtuais().total - totalDoLink) > 0.001) {
+      // O valor mudou: o link antigo cobraria o total errado.
+      linkCartao = '';
+      desenharLinkCartao();
+    }
     const tel = valor('telefone');
     const alvo = $('#ped-mensagens');
     if (soDigitos(tel).length < 10) {
@@ -1268,6 +1331,7 @@ function abrirPedido(id) {
       desenharItens();
       atualizarTotais();
       desenharMensagens();
+      desenharLinkCartao();
       if (!existente) $('#ped-nome').focus();
     },
     aoDigitar(e) {
@@ -1280,6 +1344,7 @@ function abrirPedido(id) {
         $('#ped-entrega').hidden = e.target.value !== 'entrega';
       } else if (nome === 'pago') {
         $('#ped-pagoem').hidden = !e.target.checked;
+        desenharLinkCartao();
       }
       atualizarTotais();
       if (['nome', 'telefone', 'tipo', 'dataEntrega', 'hora', 'forma', 'taxaEntrega', 'desconto', 'qtd-item'].includes(nome)) desenharMensagens();
@@ -1309,6 +1374,13 @@ function abrirPedido(id) {
         desenharItens();
         atualizarTotais();
         desenharMensagens();
+      } else if (acao === 'criar-link') {
+        criarLinkCartao(botao);
+      } else if (acao === 'copiar-link') {
+        copiarTexto(linkCartao).then((ok) => {
+          if (ok) aviso('Link copiado');
+          else $('#ped-link').select();
+        });
       } else if (acao === 'excluir') {
         store.excluir('pedidos', p.id);
         fecharJanela();

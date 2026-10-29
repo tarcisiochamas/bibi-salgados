@@ -192,20 +192,22 @@ export function aReceber(pedidos) {
 // Formas em que o cliente paga antes de receber. O nome fica gravado no pedido.
 export const PIX_ANTECIPADO = 'Pix antecipado';
 export const CARTAO_PELO_LINK = 'Cartão pelo link';
+export const CARTAO_NO_SITE = 'Cartão pelo site';
 
 // O que o site oferece quando "Cobrar antes da entrega" está ligado em Ajustes.
 // O Pix só entra com uma chave válida; sem nenhuma forma, o site volta ao normal.
+// Com a InfiniteTag em Ajustes, o cartão é pago no próprio site; sem ela, por link.
 export function formasAntecipadas(config) {
   if (!config.cobrarAntes) return [];
   const formas = [];
   if (config.cobrarAntesPix && lerChavePix(config.chavePix)) formas.push(PIX_ANTECIPADO);
-  if (config.cobrarAntesCartao) formas.push(CARTAO_PELO_LINK);
+  if (config.cobrarAntesCartao) formas.push(config.infiniteTag ? CARTAO_NO_SITE : CARTAO_PELO_LINK);
   return formas;
 }
 
 export function aguardandoPagamento(p) {
   return p.status !== 'cancelado' && !p.pagamento?.pago
-    && [PIX_ANTECIPADO, CARTAO_PELO_LINK].includes(p.pagamento?.forma);
+    && [PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE].includes(p.pagamento?.forma);
 }
 
 export function clientesDosPedidos(pedidos) {

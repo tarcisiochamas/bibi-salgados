@@ -24,9 +24,13 @@ Sem Firebase configurado, o site roda em **modo local**: tudo fica guardado só 
 Em **Ajustes → Cobrar antes da entrega**, o dono liga e desliga quando quiser. Ligado, o cliente escolhe entre:
 
 - **Pix**: depois de enviar o pedido, o site mostra o Pix copia e cola (e o QR Code, no computador) já com o valor e com o código do pedido como identificador. É gerado no próprio site (`assets/js/pix.js`), sem empresa de pagamento: o dinheiro cai direto na conta da chave Pix.
-- **Cartão de crédito**: o dono manda um link de pagamento pelo WhatsApp, criado no app da maquininha ou do banco.
+- **Cartão de crédito**, de um destes jeitos:
+  - **Pelo próprio site**, quando a InfiniteTag da conta InfinitePay está em Ajustes. Depois de enviar o pedido, o cliente toca em **Pagar com cartão**, paga na página da InfinitePay (crédito em até 12x) e volta para o site, que confere o pagamento e mostra o comprovante. Na conta InfinitePay, é preciso ligar o **Checkout Integrado** (app → Vendas → Checkout → Configurações). Não precisa de servidor: o site cria a cobrança direto do navegador só com a InfiniteTag, que não é segredo (`assets/js/infinitepay.js`).
+  - **Por link no WhatsApp**, sem InfiniteTag: o dono manda um link criado no app da maquininha ou do banco.
 
-Esses pedidos aparecem na gestão como **Aguardando pagamento** até serem marcados como pagos.
+Com a InfiniteTag, o editor de pedidos da gestão também cria um link de pagamento no cartão para qualquer pedido, que entra na mensagem **Cobrar**.
+
+Esses pedidos aparecem na gestão como **Aguardando pagamento** até serem marcados como pagos. A InfinitePay avisa o dono de cada venda no app, com o código do pedido.
 
 ## Ligar o Firebase
 
@@ -56,6 +60,7 @@ assets/js/config.js     configuração do Firebase
 assets/js/store.js      onde os dados ficam (nuvem ou navegador)
 assets/js/calculos.js   custo da ficha técnica, produção, resumo financeiro
 assets/js/pix.js        Pix copia e cola com valor (BR Code) e QR Code
+assets/js/infinitepay.js  cartão pelo site, pela página de pagamento da InfinitePay
 assets/js/vendor/       qrcode-generator (MIT), usado para desenhar o QR Code
 assets/js/dados-exemplo.js  cardápio, ingredientes e fichas de exemplo
 assets/js/loja.js       página de vendas

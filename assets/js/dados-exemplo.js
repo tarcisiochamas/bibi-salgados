@@ -22,6 +22,8 @@ export const CONFIG_PADRAO = {
   cobrarAntes: false,
   cobrarAntesPix: true,
   cobrarAntesCartao: true,
+  // Sem a InfiniteTag, o cartão é cobrado por link no WhatsApp.
+  infiniteTag: '',
   cmvAlvo: 0.35,
 };
 
