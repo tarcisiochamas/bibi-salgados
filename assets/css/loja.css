@@ -14,15 +14,15 @@ body::before {
   inset: 0 0 auto;
   height: env(safe-area-inset-top, 0px);
   z-index: 10;
-  background: var(--molho);
+  background: var(--vinho);
 }
 
 /* ---------- Letreiro ---------- */
 
 .letreiro {
   position: relative;
-  background: var(--molho);
-  color: var(--molho-texto);
+  background: var(--vinho);
+  color: var(--vinho-texto);
   margin-bottom: 18px;
 }
 /* Toldo recortado, como o de uma lanchonete */
@@ -33,39 +33,47 @@ body::before {
   right: 0;
   top: 100%;
   height: 14px;
-  background: radial-gradient(circle at 12px 0, var(--molho) 11.5px, transparent 12px) repeat-x;
+  background: radial-gradient(circle at 12px 0, var(--vinho) 11.5px, transparent 12px) repeat-x;
   background-size: 24px 14px;
 }
-.letreiro .envoltorio { display: grid; gap: 0.85rem; padding-block: 2.25rem 1.75rem; }
+.letreiro .envoltorio { display: grid; gap: 1.1rem; padding-block: 1.5rem 1.75rem; }
+.letreiro-topo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.1rem; align-items: center; }
+.letreiro-logo {
+  display: block;
+  width: clamp(104px, 28vw, 176px);
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.letreiro-texto { display: grid; gap: 0.6rem; min-width: 0; }
 .letreiro-local {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-family: var(--fonte-titulo);
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--dourado);
 }
-.letreiro h1 {
-  font-family: var(--fonte-letreiro);
-  font-weight: 400;
-  font-size: clamp(2.75rem, 11vw, 4.75rem);
-  line-height: 0.95;
-  color: var(--dourado);
-  letter-spacing: 0.01em;
-  text-shadow: 0 3px 0 rgb(0 0 0 / 0.18);
-}
-.letreiro-slogan { max-width: 36rem; font-size: 1.075rem; }
+.letreiro-slogan { max-width: 34rem; font-size: 1.05rem; }
 .letreiro-info {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 1.25rem;
-  padding: 0;
-  margin: 0.25rem 0 0;
+  padding: 0.9rem 0 0;
+  margin: 0;
+  border-top: 1px solid rgb(232 194 108 / 0.35);
   list-style: none;
   font-size: 0.9rem;
   font-weight: 600;
 }
 .letreiro-info li { display: inline-flex; align-items: center; gap: 0.4rem; }
 .letreiro-info svg { width: 18px; height: 18px; color: var(--dourado); flex: none; }
+
+@media (min-width: 720px) {
+  .letreiro .envoltorio { padding-block: 2.25rem 2.25rem; }
+  .letreiro-topo { gap: 2rem; }
+  .letreiro-slogan { font-size: 1.15rem; }
+}
 
 /* ---------- Aviso de pedidos pausados ---------- */
 
@@ -113,13 +121,13 @@ body::before {
 .cardapio { display: grid; gap: 2.75rem; padding-block: 1.75rem 2rem; }
 .secao { display: grid; gap: 0.25rem; scroll-margin-top: calc(76px + env(safe-area-inset-top, 0px)); }
 .secao > h2 {
-  font-family: var(--fonte-letreiro);
-  font-weight: 400;
-  font-size: 1.75rem;
-  color: var(--molho);
+  font-family: var(--fonte-titulo);
+  font-weight: 600;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--titulo);
 }
-:root[data-theme="dark"] .secao > h2 { color: var(--dourado); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .secao > h2 { color: var(--dourado); } }
 .secao-dica { color: var(--tinta-suave); font-size: 0.95rem; margin-bottom: 0.5rem; }
 
 .item {
@@ -149,7 +157,7 @@ body::before {
   height: 9px;
   margin-right: 0.45rem;
   border-radius: 50%;
-  background: var(--molho);
+  background: var(--laranja);
   vertical-align: 0.12em;
 }
 
@@ -165,7 +173,7 @@ body::before {
   border-radius: var(--raio);
   background: var(--superficie);
 }
-.como h2 { font-family: var(--fonte-letreiro); font-weight: 400; font-size: 1.35rem; }
+.como h2 { font-family: var(--fonte-titulo); font-weight: 600; font-size: 1.35rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--titulo); }
 .como ol { display: grid; gap: 0.85rem; margin: 0; padding: 0; list-style: none; counter-reset: passo; }
 .como li { display: grid; grid-template-columns: 2rem 1fr; gap: 0.75rem; align-items: start; counter-increment: passo; }
 .como li::before {
@@ -175,9 +183,10 @@ body::before {
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
-  background: var(--molho);
-  color: var(--molho-texto);
-  font-family: var(--fonte-letreiro);
+  background: var(--vinho);
+  color: var(--dourado);
+  font-family: var(--fonte-titulo);
+  font-weight: 600;
 }
 
 /* ---------- Rodapé ---------- */
@@ -189,7 +198,7 @@ body::before {
   font-size: 0.95rem;
 }
 .rodape .envoltorio { display: grid; gap: 0.6rem; }
-.rodape strong { color: var(--tinta); font-family: var(--fonte-letreiro); font-weight: 400; font-size: 1.2rem; }
+.rodape strong { color: var(--titulo); font-family: var(--fonte-titulo); font-weight: 600; font-size: 1.2rem; letter-spacing: 0.04em; text-transform: uppercase; }
 .rodape a { font-weight: 600; }
 .rodape-vendedor { margin-top: 0.75rem; font-size: 0.85rem; }
 
@@ -224,7 +233,7 @@ body::before {
   padding: 0 0.4rem;
   border-radius: 999px;
   background: var(--dourado);
-  color: #2B1D14;
+  color: #2B1110;
   font-size: 0.9rem;
 }
 
@@ -253,7 +262,7 @@ body::before {
 .alerta-minimo { color: var(--alerta); font-weight: 600; font-size: 0.925rem; }
 
 .enviado { display: grid; gap: 1rem; justify-items: start; }
-.enviado h3 { font-family: var(--fonte-letreiro); font-weight: 400; font-size: 1.6rem; color: var(--molho); }
+.enviado h3 { font-family: var(--fonte-titulo); font-weight: 600; font-size: 1.6rem; letter-spacing: 0.03em; text-transform: uppercase; color: var(--titulo); }
 .mensagem-previa {
   width: 100%;
   margin: 0;

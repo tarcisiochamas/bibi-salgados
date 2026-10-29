@@ -6,10 +6,10 @@ import { somarDias, hojeISO } from './util.js';
 
 export const CONFIG_PADRAO = {
   nome: 'Bibi Salgados',
-  slogan: 'Salgados feitos em casa: fritos na hora, para a sua festa ou congelados para fritar quando quiser.',
+  slogan: 'A crocância que você merece, com o recheio que você ama. Salgadinhos fritos na hora, com qualidade artesanal e recheio de verdade.',
   cidade: 'São José do Rio Preto - SP',
-  whatsapp: '',
-  instagram: '',
+  whatsapp: '5517996353077',
+  instagram: 'bibisalgadosrp',
   horario: 'Terça a sábado, das 9h às 19h',
   areaEntrega: 'Entregamos em toda a cidade.',
   taxaEntrega: 8,
