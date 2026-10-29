@@ -1,6 +1,6 @@
 # Bibi Salgados
 
-Site gratuito de um negócio de salgados feito em casa:
+Site gratuito da Bibi Salgados, com duas partes:
 
 - **Página de vendas** (`index.html`): cardápio, carrinho e pedido que já vai escrito para o WhatsApp.
 - **Gestão** (`gestao.html`): pedidos do dia, o que produzir, ingredientes da produção, cardápio com ficha técnica e custo de cada salgado, finanças do mês e ajustes do negócio.

@@ -56,7 +56,8 @@ function atualizar(dados) {
 // ---------- Letreiro e rodapé ----------
 
 function desenharLetreiro() {
-  $('#letreiro-local').textContent = config.cidade ? `Feito em casa · ${config.cidade}` : 'Feito em casa';
+  $('#letreiro-local').textContent = config.cidade || '';
+  $('#letreiro-local').hidden = !config.cidade;
   $('#letreiro-nome').textContent = config.nome;
   $('#letreiro-slogan').textContent = config.slogan || '';
   const info = [];
