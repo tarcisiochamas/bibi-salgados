@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Teste do cartão no site · Bibi Salgados</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#5B0707">
+<link rel="icon" href="assets/img/icone-32.png" sizes="32x32" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Oswald:wght@500;600&display=swap">
+<link rel="stylesheet" href="assets/css/base.css">
+<style>
+  /* Página temporária: sai do site depois do teste. */
+  .teste {
+    display: grid;
+    gap: 1.25rem;
+    max-width: 36rem;
+    margin: 0 auto;
+    padding-block: 2rem 3rem;
+    padding-left: var(--gutter-esq);
+    padding-right: var(--gutter-dir);
+  }
+  .teste-logo { width: 72px; height: 72px; border-radius: 50%; }
+  .teste h1 { font-family: var(--fonte-titulo); font-size: 1.75rem; font-weight: 600; color: var(--titulo); }
+  .resultado { display: grid; gap: 0.4rem; padding: 1rem 1.1rem; border-radius: var(--raio); }
+  .resultado strong { font-size: 1.15rem; }
+  .resultado p { color: var(--tinta); }
+  .resultado.ok { background: var(--ok-fundo); color: var(--ok); }
+  .resultado.bloqueado { background: var(--erro-fundo); color: var(--erro); }
+  .resultado.sem-rede { background: var(--alerta-fundo); color: var(--alerta); }
+  .detalhes { font-size: 0.875rem; color: var(--tinta-suave); }
+  .detalhes summary { cursor: pointer; font-weight: 600; }
+  .detalhes pre {
+    margin: 0.5rem 0 0;
+    padding: 0.75rem;
+    border-radius: 10px;
+    background: var(--superficie);
+    color: var(--tinta);
+    font-size: 0.8125rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+<main class="teste">
+  <img class="teste-logo" src="assets/img/logo-160.jpg" width="72" height="72" alt="Bibi Salgados">
+  <h1>Teste do pagamento com cartão</h1>
+  <p>Esta página confere se a InfinitePay aceita que o site crie a cobrança do cartão sozinho, sem servidor. O teste não cria cobrança nenhuma e não precisa de conta.</p>
+  <button class="btn btn-largo" id="testar" type="button">Testar agora</button>
+  <div class="resultado" id="resultado" role="status" hidden></div>
+  <details class="detalhes" id="detalhes" hidden>
+    <summary>Detalhes técnicos</summary>
+    <pre id="registro"></pre>
+  </details>
+</main>
+
+<script type="module">
+// Os dois endereços que a InfinitePay publica para criar a cobrança.
+const ENDERECOS = [
+  'https://api.checkout.infinitepay.io/links',
+  'https://api.infinitepay.io/invoices/public/checkout/links',
+];
+
+// Vai sem InfiniteTag de propósito: a InfinitePay recusa e não cria nada.
+// O que o teste mede é se o navegador consegue ler essa resposta.
+const CORPO = JSON.stringify({ items: [{ description: 'Teste', price: 100, quantity: 1 }] });
+
+const $ = (s) => document.querySelector(s);
+
+// Só diz se o endereço responde, sem ler a resposta.
+async function responde(url) {
+  try {
+    await fetch(new URL(url).origin + '/', { mode: 'no-cors', cache: 'no-store' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function tentar(url) {
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: CORPO,
+      cache: 'no-store',
+    });
+    return { lido: true, status: r.status, texto: (await r.text()).slice(0, 300) };
+  } catch (e) {
+    return { lido: false, erro: String(e?.message || e) };
+  }
+}
+
+function mostrar(classe, titulo, texto) {
+  const caixa = $('#resultado');
+  caixa.className = `resultado ${classe}`;
+  caixa.innerHTML = '<strong></strong><p></p>';
+  caixa.querySelector('strong').textContent = titulo;
+  caixa.querySelector('p').textContent = texto;
+  caixa.hidden = false;
+}
+
+$('#testar').addEventListener('click', async () => {
+  const botao = $('#testar');
+  botao.disabled = true;
+  botao.textContent = 'Testando…';
+  $('#resultado').hidden = true;
+
+  const linhas = [`Site: ${location.origin}`, `Navegador: ${navigator.userAgent}`, ''];
+  let algumLido = false;
+  let algumResponde = false;
+  for (const url of ENDERECOS) {
+    const [chega, r] = await Promise.all([responde(url), tentar(url)]);
+    algumResponde ||= chega || r.lido;
+    algumLido ||= r.lido;
+    linhas.push(url);
+    linhas.push(`  responde: ${chega ? 'sim' : 'não'}`);
+    linhas.push(r.lido ? `  site leu a resposta: sim (${r.status}) ${r.texto}` : `  site leu a resposta: não (${r.erro})`);
+  }
+  linhas.push('', `Testado em ${new Date().toLocaleString('pt-BR')}`);
+
+  if (algumLido) {
+    mostrar('ok', 'Dá certo',
+      'A InfinitePay respondeu direto para o site. Dá para o cliente pagar o cartão pelo site sem servidor nenhum. Pode contar o resultado no projeto.');
+  } else if (algumResponde) {
+    mostrar('bloqueado', 'Bloqueado',
+      'A InfinitePay está no ar, mas não deixa o site criar a cobrança direto do navegador. Vamos precisar de um servidor pequeno e grátis. Pode contar o resultado no projeto.');
+  } else {
+    mostrar('sem-rede', 'Sem resposta',
+      'Não consegui falar com a InfinitePay. Confira a internet (ou desligue o bloqueador de anúncios) e toque em Testar de novo.');
+  }
+  $('#registro').textContent = linhas.join('\n');
+  $('#detalhes').hidden = false;
+  botao.disabled = false;
+  botao.textContent = 'Testar de novo';
+});
+</script>
+</body>
+</html>
