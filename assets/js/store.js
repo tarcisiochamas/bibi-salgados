@@ -17,6 +17,22 @@ const CHAVE_LOCAL = 'bibi-salgados:dados:v1';
 // Firestore não aceita "undefined"; isso também faz uma cópia limpa.
 const limpar = (obj) => JSON.parse(JSON.stringify(obj));
 
+// Frase padrão das primeiras versões do site. Quem salvou os Ajustes antes da
+// logo e dos dados do Instagram ficou com ela gravada, e com WhatsApp e
+// Instagram em branco.
+const SLOGAN_ANTIGO = 'Salgados feitos em casa: fritos na hora, para a sua festa ou congelados para fritar quando quiser.';
+
+// Junta o que está salvo com os valores padrão e troca o que sobrou da versão antiga.
+function completarConfig(salvo) {
+  const c = { ...CONFIG_PADRAO, ...(salvo || {}) };
+  if (c.slogan === SLOGAN_ANTIGO) {
+    c.slogan = CONFIG_PADRAO.slogan;
+    if (!c.whatsapp) c.whatsapp = CONFIG_PADRAO.whatsapp;
+    if (!c.instagram) c.instagram = CONFIG_PADRAO.instagram;
+  }
+  return c;
+}
+
 function vazio() {
   const d = { config: { ...CONFIG_PADRAO } };
   for (const c of COLECOES) d[c] = [];
@@ -26,7 +42,7 @@ function vazio() {
 function normalizar(bruto) {
   const d = vazio();
   if (!bruto || typeof bruto !== 'object') return d;
-  d.config = { ...CONFIG_PADRAO, ...(bruto.config || {}) };
+  d.config = completarConfig(bruto.config);
   for (const c of COLECOES) d[c] = Array.isArray(bruto[c]) ? bruto[c].filter((x) => x && x.id) : [];
   return d;
 }
@@ -163,7 +179,7 @@ async function abrirNuvemPublica(fs, db) {
     fs.getDoc(fs.doc(db, 'config', 'negocio')),
     fs.getDocs(fs.query(fs.collection(db, 'produtos'), fs.where('ativo', '==', true))),
   ]);
-  dados.config = { ...CONFIG_PADRAO, ...(cfg.exists() ? cfg.data() : {}) };
+  dados.config = completarConfig(cfg.exists() ? cfg.data() : null);
   dados.produtos = prods.docs.map((d) => ({ ...d.data(), id: d.id }));
 
   return {
@@ -215,7 +231,7 @@ async function abrirNuvemGestao(fs, db, authMod, app) {
       avisar();
     };
     cancelar.push(fs.onSnapshot(fs.doc(db, 'config', 'negocio'), (snap) => {
-      dados.config = { ...CONFIG_PADRAO, ...(snap.exists() ? snap.data() : {}) };
+      dados.config = completarConfig(snap.exists() ? snap.data() : null);
       chegou('config');
     }, deuErro));
     for (const c of COLECOES) {

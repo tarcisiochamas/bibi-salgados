@@ -1,17 +1,19 @@
-/* Bibi Salgados: identidade de cardápio de lanchonete.
-   Faixa vermelho-molho com letreiro dourado, papel claro e tinta marrom. */
+/* Bibi Salgados: as cores da logo. Vinho de fundo, laranja da coxinha e dourado do anel. */
 :root {
-  --papel: #FFFDF8;
-  --superficie: #FFF7EA;
-  --superficie-2: #F6EAD8;
-  --tinta: #2B1D14;
-  --tinta-suave: #6E5747;
-  --linha: #E8DAC7;
-  --molho: #B3261E;
-  --molho-texto: #FFF4E2;
-  --dourado: #F2B33D;
-  --botao: #2B1D14;
-  --botao-texto: #FFFDF8;
+  --papel: #FFFBF7;
+  --superficie: #FBF0E7;
+  --superficie-2: #F3E1D3;
+  --tinta: #2B1110;
+  --tinta-suave: #6F4A43;
+  --linha: #ECD8C8;
+  --vinho: #5B0707;
+  --vinho-texto: #FFF1E2;
+  --laranja: #F47A20;
+  --dourado: #E2B85F;
+  --titulo: #5B0707;
+  --foco: #C25E12;
+  --botao: #5B0707;
+  --botao-texto: #FFF6EC;
   --whats: #157A43;
   --whats-texto: #FFFFFF;
   --ok: #1D7243;
@@ -23,10 +25,10 @@
   --info: #1F5C99;
   --info-fundo: #E2EDF8;
   --neutro: #5F5751;
-  --neutro-fundo: #EFE9E2;
-  --sombra: 0 1px 2px rgb(43 29 20 / 0.06), 0 8px 24px rgb(43 29 20 / 0.10);
+  --neutro-fundo: #EFE7E1;
+  --sombra: 0 1px 2px rgb(43 17 16 / 0.06), 0 8px 24px rgb(43 17 16 / 0.10);
   --raio: 12px;
-  --fonte-letreiro: 'Alfa Slab One', Rockwell, 'Roboto Slab', Georgia, serif;
+  --fonte-titulo: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif;
   --fonte-texto: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --gutter-esq: max(16px, env(safe-area-inset-left, 0px));
   --gutter-dir: max(16px, env(safe-area-inset-right, 0px));
@@ -34,17 +36,20 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --papel: #18110D;
-    --superficie: #221913;
-    --superficie-2: #2D2119;
-    --tinta: #F6EBDD;
-    --tinta-suave: #C2AB97;
-    --linha: #3D2E24;
-    --molho: #A52A20;
-    --molho-texto: #FFF1DC;
-    --dourado: #F6C35C;
-    --botao: #F6EBDD;
-    --botao-texto: #18110D;
+    --papel: #170908;
+    --superficie: #231110;
+    --superficie-2: #301715;
+    --tinta: #F8EADF;
+    --tinta-suave: #CBA79B;
+    --linha: #45231F;
+    --vinho: #5B0707;
+    --vinho-texto: #FFF1E2;
+    --laranja: #FF8A3D;
+    --dourado: #E8C26C;
+    --titulo: #E8C26C;
+    --foco: #FFB067;
+    --botao: #F28A3E;
+    --botao-texto: #1C0A08;
     --whats: #1F9D58;
     --whats-texto: #FFFFFF;
     --ok: #6FD39A;
@@ -55,25 +60,28 @@
     --erro-fundo: #401A16;
     --info: #8DBDF0;
     --info-fundo: #16283B;
-    --neutro: #CFC4BA;
-    --neutro-fundo: #2E2620;
+    --neutro: #D2C3B9;
+    --neutro-fundo: #2F2420;
     --sombra: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --papel: #18110D;
-  --superficie: #221913;
-  --superficie-2: #2D2119;
-  --tinta: #F6EBDD;
-  --tinta-suave: #C2AB97;
-  --linha: #3D2E24;
-  --molho: #A52A20;
-  --molho-texto: #FFF1DC;
-  --dourado: #F6C35C;
-  --botao: #F6EBDD;
-  --botao-texto: #18110D;
+  --papel: #170908;
+  --superficie: #231110;
+  --superficie-2: #301715;
+  --tinta: #F8EADF;
+  --tinta-suave: #CBA79B;
+  --linha: #45231F;
+  --vinho: #5B0707;
+  --vinho-texto: #FFF1E2;
+  --laranja: #FF8A3D;
+  --dourado: #E8C26C;
+  --titulo: #E8C26C;
+  --foco: #FFB067;
+  --botao: #F28A3E;
+  --botao-texto: #1C0A08;
   --whats: #1F9D58;
   --whats-texto: #FFFFFF;
   --ok: #6FD39A;
@@ -84,8 +92,8 @@
   --erro-fundo: #401A16;
   --info: #8DBDF0;
   --info-fundo: #16283B;
-  --neutro: #CFC4BA;
-  --neutro-fundo: #2E2620;
+  --neutro: #D2C3B9;
+  --neutro-fundo: #2F2420;
   --sombra: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
   color-scheme: dark;
 }
@@ -122,7 +130,7 @@ a { color: inherit; }
 }
 
 :focus-visible {
-  outline: 3px solid var(--dourado);
+  outline: 3px solid var(--foco);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -190,8 +198,8 @@ input, select, textarea {
   font-size: 16px;
 }
 textarea { min-height: 84px; resize: vertical; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--dourado); box-shadow: 0 0 0 3px rgb(242 179 61 / 0.3); }
-input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-height: 0; accent-color: var(--molho); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--laranja); box-shadow: 0 0 0 3px rgb(244 122 32 / 0.25); }
+input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-height: 0; accent-color: var(--vinho); }
 .campo-invalido { border-color: var(--erro) !important; }
 .erro-campo { color: var(--erro); font-size: 0.8125rem; font-weight: 600; }
 
@@ -265,7 +273,7 @@ dialog.janela {
   overscroll-behavior: contain;
 }
 dialog.janela > form { display: flex; flex-direction: column; min-height: 100%; }
-dialog.janela::backdrop { background: rgb(24 17 13 / 0.55); }
+dialog.janela::backdrop { background: rgb(23 9 8 / 0.6); }
 .janela-topo {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;

@@ -228,7 +228,7 @@ function mostrarConformeUsuario(usuario) {
   $('#tela-login').hidden = dentro;
   $('#app').hidden = !dentro;
   if (!dentro) {
-    $('#login-marca').textContent = config().nome;
+    $('#login-marca').alt = config().nome;
     if ($('#janela').open) $('#janela').close();
     return;
   }
@@ -251,7 +251,7 @@ function desenhar() {
   if (!store || $('#app').hidden) return;
   desenharSinc();
   desenharNav();
-  $('#g-marca').textContent = config().nome;
+  $('#g-marca img').alt = config().nome;
   const main = $('#g-conteudo');
   if (!store.carregado) {
     main.innerHTML = vazio('Carregando seus dados…');

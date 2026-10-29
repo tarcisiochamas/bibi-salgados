@@ -6,7 +6,7 @@ body.gestao::before {
   inset: 0 0 auto;
   height: env(safe-area-inset-top, 0px);
   z-index: 30;
-  background: var(--molho);
+  background: var(--vinho);
 }
 
 .g-topo {
@@ -18,17 +18,19 @@ body.gestao::before {
   gap: 0.6rem;
   min-height: 56px;
   padding: 0.35rem var(--gutter-dir) 0.35rem var(--gutter-esq);
-  background: var(--molho);
-  color: var(--molho-texto);
+  background: var(--vinho);
+  color: var(--vinho-texto);
 }
-.g-marca {
-  font-family: var(--fonte-letreiro);
-  font-size: 1.3rem;
+.g-marca { display: block; flex: none; border-radius: 50%; }
+.g-marca img { display: block; width: 42px; height: 42px; border-radius: 50%; }
+.g-sub {
+  font-family: var(--fonte-titulo);
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--dourado);
-  text-decoration: none;
-  white-space: nowrap;
 }
-.g-sub { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.85; }
 .g-sinc {
   display: inline-flex;
   align-items: center;
@@ -43,7 +45,7 @@ body.gestao::before {
 }
 .g-sinc svg { width: 16px; height: 16px; }
 .g-sinc.offline { background: var(--alerta-fundo); color: var(--alerta); }
-.g-topo .btn-icone { color: var(--molho-texto); }
+.g-topo .btn-icone { color: var(--vinho-texto); }
 .g-topo .btn-icone:hover { background: rgb(255 255 255 / 0.14); }
 
 /* ---------- Navegação ---------- */
@@ -82,8 +84,8 @@ body.gestao::before {
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--molho);
-  color: var(--molho-texto);
+  background: var(--laranja);
+  color: #1C0A08;
   font-size: 0.7rem;
   font-weight: 800;
 }
@@ -96,9 +98,7 @@ body.gestao::before {
   text-align: left;
   cursor: pointer;
 }
-.g-nav a[aria-current="page"] { color: var(--molho); }
-:root[data-theme="dark"] .g-nav a[aria-current="page"] { color: var(--dourado); }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .g-nav a[aria-current="page"] { color: var(--dourado); } }
+.g-nav a[aria-current="page"] { color: var(--titulo); }
 .g-nav .so-largo { display: none; }
 
 .g-conteudo {
@@ -147,7 +147,14 @@ body.gestao::before {
 /* ---------- Títulos e seções ---------- */
 
 .g-titulo { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 0.75rem 1rem; }
-.g-titulo h1 { font-family: var(--fonte-letreiro); font-weight: 400; font-size: clamp(1.75rem, 6vw, 2.25rem); }
+.g-titulo h1 {
+  font-family: var(--fonte-titulo);
+  font-weight: 600;
+  font-size: clamp(1.7rem, 6vw, 2.2rem);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--titulo);
+}
 .g-data { color: var(--tinta-suave); font-weight: 600; font-size: 0.95rem; }
 .g-secao { display: grid; gap: 0.75rem; min-width: 0; }
 .g-secao-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
@@ -336,7 +343,7 @@ body.gestao::before {
 .barra-rotulo { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.925rem; }
 .barra-rotulo span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
 .barra-trilho { height: 10px; border-radius: 999px; background: var(--superficie-2); overflow: hidden; }
-.barra-trilho span { display: block; height: 100%; border-radius: inherit; background: var(--molho); }
+.barra-trilho span { display: block; height: 100%; border-radius: inherit; background: var(--laranja); }
 .caixa-resumo { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-size: 0.95rem; }
 .caixa-resumo strong { font-variant-numeric: tabular-nums; }
 .acoes { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -446,7 +453,7 @@ body.gestao::before {
   color: var(--papel);
   box-shadow: var(--sombra);
 }
-.barra-salvar .btn { background: var(--dourado); color: #2B1D14; }
+.barra-salvar .btn { background: var(--dourado); color: #2B1110; }
 @media (min-width: 960px) { .barra-salvar { bottom: 1rem; } }
 .confirmacao { display: grid; gap: 0.75rem; padding: 1rem; border-radius: var(--raio); background: var(--erro-fundo); color: var(--erro); font-weight: 600; }
 
@@ -461,13 +468,14 @@ body.gestao::before {
 .login-cartao { display: grid; gap: 1.25rem; width: min(400px, 100%); }
 .login-letreiro {
   display: grid;
-  gap: 0.25rem;
-  padding: 1.5rem;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 1.5rem 1.4rem;
   border-radius: 18px;
-  background: var(--molho);
-  color: var(--molho-texto);
+  background: var(--vinho);
+  color: var(--vinho-texto);
 }
-.login-letreiro .g-marca { font-size: 2.2rem; }
+.login-letreiro img { display: block; width: min(200px, 60vw); height: auto; aspect-ratio: 1; border-radius: 50%; }
 .login-form { display: grid; gap: 1rem; }
 .link {
   justify-self: start;
