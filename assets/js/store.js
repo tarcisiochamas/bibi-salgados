@@ -120,6 +120,24 @@ async function abrirLocal() {
       dados[colecao] = dados[colecao].filter((x) => !remover.has(x.id));
       persistir();
     },
+    async emConjunto({ salvar = [], excluir = [], somar = [], mudar = [] }) {
+      for (const [colecao, obj] of salvar) {
+        const o = limpar({ ...obj, id: obj.id || novoId() });
+        const lista = dados[colecao];
+        const i = lista.findIndex((x) => x.id === o.id);
+        if (i >= 0) lista[i] = o; else lista.push(o);
+      }
+      for (const [colecao, id] of excluir) dados[colecao] = dados[colecao].filter((x) => x.id !== id);
+      for (const [colecao, id, campo, quanto] of somar) {
+        const x = dados[colecao].find((y) => y.id === id);
+        if (x) x[campo] = Math.round(((Number(x[campo]) || 0) + quanto) * 1000) / 1000;
+      }
+      for (const [colecao, id, campos] of mudar) {
+        const x = dados[colecao].find((y) => y.id === id);
+        if (x) Object.assign(x, limpar(campos));
+      }
+      persistir();
+    },
     async salvarConfig(parcial) {
       dados.config = limpar({ ...dados.config, ...parcial });
       persistir();
@@ -312,6 +330,30 @@ async function abrirNuvemGestao(fs, db, authMod, app) {
     },
     async excluirVarios(colecao, ids) {
       await emLotes(ids.map((id) => (lote) => lote.delete(fs.doc(db, colecao, id))));
+    },
+    // Várias mudanças que entram juntas. "somar" soma no servidor (fs.increment),
+    // então dois aparelhos mexendo no mesmo estoque não perdem a conta.
+    async emConjunto({ salvar = [], excluir = [], somar = [], mudar = [] }) {
+      const existe = (colecao, id) => dados[colecao].some((x) => x.id === id);
+      const ops = [];
+      for (const [colecao, obj] of salvar) {
+        const o = limpar({ ...obj, id: obj.id || novoId() });
+        ops.push((lote) => lote.set(fs.doc(db, colecao, o.id), o));
+      }
+      for (const [colecao, id] of excluir) ops.push((lote) => lote.delete(fs.doc(db, colecao, id)));
+      for (const [colecao, id, campo, quanto] of somar) {
+        if (existe(colecao, id) && quanto) ops.push((lote) => lote.update(fs.doc(db, colecao, id), { [campo]: fs.increment(quanto) }));
+      }
+      for (const [colecao, id, campos] of mudar) {
+        if (existe(colecao, id)) ops.push((lote) => lote.update(fs.doc(db, colecao, id), limpar(campos)));
+      }
+      if (ops.length > 400) {
+        await emLotes(ops);
+        return;
+      }
+      const lote = fs.writeBatch(db);
+      ops.forEach((op) => op(lote));
+      gravar(lote.commit());
     },
     async salvarConfig(parcial) {
       const novo = limpar({ ...dados.config, ...parcial });

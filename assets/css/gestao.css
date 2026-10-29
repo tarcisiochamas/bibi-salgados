@@ -57,7 +57,7 @@ body.gestao::before {
   bottom: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   background: var(--papel);
   border-top: 1px solid var(--linha);
@@ -160,6 +160,7 @@ body.gestao::before {
 .g-secao-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
 .g-secao h2 { font-size: 1.1rem; font-weight: 800; }
 .vazio { padding: 1rem 0; color: var(--tinta-suave); }
+.texto-erro { color: var(--erro); }
 
 .nota {
   padding: 0.9rem 1rem;
@@ -186,7 +187,7 @@ body.gestao::before {
   text-align: left;
 }
 .alerta-novos { cursor: pointer; width: 100%; }
-.alerta-pagamento { background: var(--alerta-fundo); color: var(--alerta); }
+.alerta-pagamento, .alerta-estoque { background: var(--alerta-fundo); color: var(--alerta); }
 .aviso-ajuste { color: var(--alerta); font-weight: 600; font-size: 0.925rem; }
 .sub-opcao { display: grid; gap: 0.6rem; padding-left: 2rem; min-width: 0; }
 .alerta-novos svg { width: 20px; height: 20px; }
@@ -310,6 +311,7 @@ body.gestao::before {
 .tabela .direita { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tabela tfoot td { font-weight: 800; border-bottom: 0; }
 .tabela .grande { font-size: 1.15rem; font-weight: 800; }
+.detalhe-linha { margin-top: 0.15rem; color: var(--tinta-suave); font-size: 0.8125rem; }
 
 /* ---------- Cardápio ---------- */
 
@@ -351,6 +353,12 @@ body.gestao::before {
 .caixa-resumo strong { font-variant-numeric: tabular-nums; }
 .acoes { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
+/* ---------- Estoque ---------- */
+
+.estoque-agora { padding: 0.85rem 1rem; border-radius: var(--raio); background: var(--superficie); }
+.estoque-agora strong { font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.lista-simples { display: grid; gap: 0.3rem; margin: 0; padding-left: 1.25rem; }
+
 /* ---------- Janelas de edição ---------- */
 
 .secao-janela { display: grid; gap: 0.85rem; min-width: 0; }
@@ -364,6 +372,7 @@ body.gestao::before {
 .grade-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.85rem; }
 .campo-largo { grid-column: 1 / -1; }
 .check { display: inline-flex; align-items: center; gap: 0.6rem; min-height: 44px; font-weight: 600; cursor: pointer; }
+.check input { flex: none; }
 
 .com-prefixo, .com-sufixo { position: relative; display: block; }
 .com-prefixo > span, .com-sufixo > span {
@@ -379,6 +388,7 @@ body.gestao::before {
 .com-prefixo input { padding-left: 2.4rem; }
 .com-sufixo > span { right: 0.75rem; }
 .com-sufixo input { padding-right: 2.6rem; }
+.sufixo-largo input { padding-right: 5.25rem; }
 
 .itens-editor { display: grid; gap: 0.6rem; }
 .item-editor {

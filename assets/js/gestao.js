@@ -15,6 +15,10 @@ import {
 } from './calculos.js';
 import { lerChavePix, codigoPix } from './pix.js';
 import { lerInfiniteTag, criarCobranca, explicarErro } from './infinitepay.js';
+import {
+  controlaEstoque, foiContado, esgotado, situacaoProduto, situacaoIngrediente, movimentoDoPedido,
+  movimentoDaProducao, emPedidosNovos, faltasDepois, listaDeCompras, contexto,
+} from './estoque.js';
 import { icone } from './icones.js';
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -23,6 +27,7 @@ const TELAS = {
   hoje: ['Hoje', telaHoje],
   pedidos: ['Pedidos', telaPedidos],
   producao: ['Produção', telaProducao],
+  estoque: ['Estoque', telaEstoque],
   cardapio: ['Cardápio', telaCardapio],
   financas: ['Finanças', telaFinancas],
   ajustes: ['Ajustes', telaAjustes],
@@ -32,6 +37,7 @@ const NAV = [
   ['hoje', 'Hoje', 'hoje'],
   ['pedidos', 'Pedidos', 'pedidos'],
   ['producao', 'Produção', 'producao'],
+  ['estoque', 'Estoque', 'estoque'],
   ['cardapio', 'Cardápio', 'cardapio'],
   ['financas', 'Finanças', 'financas'],
   ['ajustes', 'Ajustes', 'ajustes'],
@@ -56,6 +62,8 @@ const ui = {
   periodoProducao: 'hoje',
   dataProducao: hojeISO(),
   abaCardapio: 'produtos',
+  abaEstoque: 'prontos',
+  diasCompras: 7,
   mes: mesISO(hojeISO()),
   ajustesSujo: false,
   backupPendente: null,
@@ -140,6 +148,26 @@ function unidadeDoItem(it) {
   if (it.unidade === 'cento') return Number(it.qtd) === 1 ? 'cento' : 'centos';
   const palavra = String(it.unidade || 'pacote').split(' ')[0];
   return Number(it.qtd) === 1 ? palavra : `${palavra}s`;
+}
+
+// Quantidade na unidade de venda do produto: "6 pacotes", "1,5 centos", "12 un"
+function qtdVenda(p, n) {
+  const q = Number(n) || 0;
+  if ((Number(p.rende) || 1) <= 1) return `${num(q)} un`;
+  if (p.unidade === 'cento') return `${num(q)} ${q === 1 ? 'cento' : 'centos'}`;
+  const palavra = String(p.unidade || 'pacote').split(' ')[0];
+  return `${num(q)} ${q === 1 ? palavra : `${palavra}s`}`;
+}
+
+function sufixoVenda(p) {
+  if ((Number(p.rende) || 1) <= 1) return 'un';
+  if (p.unidade === 'cento') return 'centos';
+  return `${String(p.unidade || 'pacote').split(' ')[0]}s`;
+}
+
+// Estoque de ingrediente sem arredondar para cima: "2,5 kg", "8,5 un"
+function estoqueLegivel(qtd, unidade) {
+  return unidade === 'un' ? `${num(qtd, 1)} un` : quantidadeLegivel(qtd, unidade);
 }
 
 function compraLegivel(ing) {
@@ -313,6 +341,31 @@ function htmlErroAcesso() {
 }
 
 // ---------------------------------------------------------------------------
+// Pedidos e estoque
+// ---------------------------------------------------------------------------
+
+// Salva o pedido e acerta o estoque junto: os salgados prontos que ele segura
+// e os ingredientes que a produção gastou. Devolve o que ficou faltando.
+function salvarPedido(pedido) {
+  const antes = dados().pedidos.find((x) => x.id === pedido.id) || null;
+  const ctx = contexto(dados());
+  const mov = movimentoDoPedido(antes, pedido, ctx);
+  store.emConjunto({ salvar: [['pedidos', mov.pedido]], somar: mov.somar });
+  return faltasDepois(mov.somar, ctx.produtosPorId);
+}
+
+function excluirPedidos(lista) {
+  const ctx = contexto(dados());
+  const somar = lista.flatMap((p) => movimentoDoPedido(p, null, ctx).somar);
+  return store.emConjunto({ excluir: lista.map((p) => ['pedidos', p.id]), somar });
+}
+
+function avisoComFaltas(texto, faltas) {
+  if (faltas.length) aviso(`${texto}. Ficou faltando no estoque: ${faltas.join(', ')}.`, 'erro');
+  else aviso(texto);
+}
+
+// ---------------------------------------------------------------------------
 // Linhas reaproveitadas
 // ---------------------------------------------------------------------------
 
@@ -399,7 +452,8 @@ function telaHoje() {
   const aguardando = d.pedidos.filter(aguardandoPagamento);
   const receber = aReceber(d.pedidos);
   const mes = resumoDoMes(mesISO(hoje), d.pedidos, d.lancamentos);
-  const producao = producaoDasDatas(d.pedidos, [hoje]);
+  const producao = separarDoEstoque(producaoDasDatas(d.pedidos, [hoje])).aFazer;
+  const alertaEstoque = textoAlertaEstoque();
 
   return `
     <div class="g-titulo">
@@ -415,6 +469,11 @@ function telaHoje() {
     ${aguardando.length ? `
       <button class="alerta-novos alerta-pagamento" data-ir="pedidos" data-filtro="aguardando">
         <span>${aguardando.length === 1 ? '1 pedido aguardando pagamento antes da entrega' : `${aguardando.length} pedidos aguardando pagamento antes da entrega`}</span>
+        ${icone('avancar')}
+      </button>` : ''}
+    ${alertaEstoque.texto ? `
+      <button class="alerta-novos alerta-estoque" data-ir="estoque" data-aba="${alertaEstoque.aba}">
+        <span>${esc(alertaEstoque.texto)}</span>
         ${icone('avancar')}
       </button>` : ''}
     <div class="kpis">
@@ -552,16 +611,25 @@ function textoPeriodo(datas) {
   return capitalizar(dataRelativa(datas[0])) + (['Hoje', 'Amanhã', 'Ontem'].includes(dataRelativa(datas[0])) ? `, ${dataComDia(datas[0])}` : '');
 }
 
+// Salgados de estoque saem do que já está pronto: ficam fora do "o que produzir".
+function separarDoEstoque(producao) {
+  const prodMap = porId(dados().produtos);
+  return {
+    aFazer: producao.filter((l) => !controlaEstoque(prodMap[l.produtoId])),
+    doEstoque: producao.filter((l) => controlaEstoque(prodMap[l.produtoId])).map((l) => ({ ...l, produto: prodMap[l.produtoId] })),
+  };
+}
+
 function dadosDaProducao() {
   const d = dados();
   const datas = datasDaProducao();
-  const producao = producaoDasDatas(d.pedidos, datas);
-  const ingredientes = ingredientesDaProducao(producao, porId(d.fichas), porId(d.ingredientes));
-  return { datas, producao, ingredientes };
+  const { aFazer, doEstoque } = separarDoEstoque(producaoDasDatas(d.pedidos, datas));
+  const ingredientes = ingredientesDaProducao(aFazer, porId(d.fichas), porId(d.ingredientes));
+  return { datas, producao: aFazer, doEstoque, ingredientes };
 }
 
 function telaProducao() {
-  const { datas, producao, ingredientes } = dadosDaProducao();
+  const { datas, producao, doEstoque, ingredientes } = dadosDaProducao();
   const pedidos = ordenarPedidos(dados().pedidos.filter((p) => datas.includes(p.dataEntrega) && STATUS_A_PRODUZIR.includes(p.status)));
   const totalUn = soma(producao, (l) => l.unidades);
   const periodos = [['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Próximos 7 dias']];
@@ -587,9 +655,24 @@ function telaProducao() {
             <tr><td>${esc(l.nome)}</td><td class="direita grande">${num(l.unidades)}</td><td class="direita">${l.pedidos}</td></tr>`).join('')}
           </tbody>
           <tfoot><tr><td>Total</td><td class="direita">${num(totalUn)} un</td><td></td></tr></tfoot>
-        </table></div>` : vazio('Nenhum pedido em aberto para este período.')}
+        </table></div>` : vazio(doEstoque.length ? 'Nada para produzir: os pedidos do período saem do estoque.' : 'Nenhum pedido em aberto para este período.')}
       <p class="nota">Entram os pedidos novos, confirmados e em produção. Os prontos, entregues e cancelados ficam de fora.</p>
     </section>
+    ${doEstoque.length ? `
+      <section class="g-secao">
+        <h2>Sai do estoque</h2>
+        <div class="tabela-rolagem"><table class="tabela">
+          <thead><tr><th>Salgado</th><th class="direita">Pedidos</th><th class="direita">No estoque</th></tr></thead>
+          <tbody>${doEstoque.map((l) => {
+            const pedem = l.unidades / (Number(l.produto.rende) || 1);
+            const tem = Number(l.produto.estoque) || 0;
+            return `
+              <tr><td>${esc(l.nome)}</td><td class="direita">${esc(qtdVenda(l.produto, pedem))}</td>
+                <td class="direita${tem < 0 ? ' texto-erro' : ''}">${esc(tem < 0 ? `faltam ${qtdVenda(l.produto, -tem)}` : qtdVenda(l.produto, tem))}</td></tr>`;
+          }).join('')}</tbody>
+        </table></div>
+        <p class="nota">Já estão prontos. O estoque desconta os pedidos confirmados; se faltar, produza e registre em <a href="#estoque" data-ir="estoque" data-aba="prontos">Estoque</a>.</p>
+      </section>` : ''}
     ${producao.length ? `
       <section class="g-secao">
         <div class="g-secao-topo">
@@ -618,6 +701,165 @@ function textoListaCompras() {
   const linhas = [`Ingredientes · ${config().nome} · ${textoPeriodo(datas)}`, ''];
   for (const l of ingredientes.lista) linhas.push(`- ${l.ingrediente.nome}: ${quantidadeLegivel(l.qtd, l.ingrediente.unidade)}`);
   return linhas.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Tela: Estoque
+// ---------------------------------------------------------------------------
+
+function telaEstoque() {
+  const aba = ui.abaEstoque;
+  const abas = [['prontos', 'Prontos'], ['ingredientes', 'Ingredientes'], ['compras', 'Compras']];
+  return `
+    <div class="g-titulo"><h1>Estoque</h1></div>
+    <div class="segmentado" role="group" aria-label="Ver">
+      ${abas.map(([id, rotulo]) => `<button type="button" data-acao="aba-estoque" data-valor="${id}" aria-pressed="${aba === id}">${rotulo}</button>`).join('')}
+    </div>
+    ${aba === 'ingredientes' ? htmlEstoqueIngredientes() : aba === 'compras' ? htmlCompras() : htmlEstoqueProntos()}`;
+}
+
+const PILL_PRODUTO = {
+  esgotado: '<span class="pill ruim">Esgotado no site</span>',
+  acabando: '<span class="pill atencao">Acabando</span>',
+  ok: '<span class="pill bom">No site</span>',
+};
+
+function htmlEstoqueProntos() {
+  const d = dados();
+  if (!d.produtos.length) return vazio('Cadastre os produtos no Cardápio primeiro.');
+  const produtos = [...d.produtos].sort(porOrdem);
+  const comEstoque = produtos.filter(controlaEstoque);
+  const sobEncomenda = produtos.filter((p) => !controlaEstoque(p) && p.ativo !== false);
+  const novos = emPedidosNovos(d.pedidos, porId(d.produtos));
+  return `
+    <p class="nota">Para o que fica pronto esperando venda, como os congelados. Quando acaba, o site mostra <strong>Esgotado</strong> e não deixa pedir. O pedido tira do estoque quando você confirma e devolve se for cancelado.</p>
+    <section class="g-secao">
+      <h2>Com estoque</h2>
+      ${comEstoque.length ? `<div class="lista">${comEstoque.map((p) => {
+        const tem = Number(p.estoque) || 0;
+        return `
+          <button type="button" class="produto-linha" data-estoque-produto="${esc(p.id)}">
+            <span class="linha-info">
+              <strong>${esc(p.nome)}</strong>
+              <span class="suave">${esc(rotuloVenda(p))}${novos[p.id] ? ` · ${esc(qtdVenda(p, novos[p.id]))} em pedidos novos` : ''}</span>
+            </span>
+            <span class="linha-valores">
+              <strong class="num${tem < 0 ? ' texto-erro' : ''}">${esc(tem < 0 ? `Faltam ${qtdVenda(p, -tem)}` : qtdVenda(p, tem))}</strong>
+              ${p.ativo === false ? '<span class="pill sem">Fora do site</span>' : PILL_PRODUTO[situacaoProduto(p)]}
+            </span>
+          </button>`;
+      }).join('')}</div>` : vazio('Nenhum produto com estoque ainda. Toque em um produto abaixo para ligar.')}
+    </section>
+    ${sobEncomenda.length ? `
+      <section class="g-secao">
+        <h2>Feitos sob encomenda</h2>
+        <p class="suave">Sem controle de estoque: o site aceita qualquer quantidade.</p>
+        <div class="lista">${sobEncomenda.map((p) => `
+          <button type="button" class="produto-linha" data-estoque-produto="${esc(p.id)}">
+            <span class="linha-info"><strong>${esc(p.nome)}</strong><span class="suave">${esc(rotuloVenda(p))}</span></span>
+            <span class="linha-valores"><span class="suave">Ligar estoque</span></span>
+          </button>`).join('')}</div>
+      </section>` : ''}`;
+}
+
+const PILL_INGREDIENTE = {
+  sem: '<span class="pill sem">Sem contagem</span>',
+  esgotado: '<span class="pill ruim">Acabou</span>',
+  acabando: '<span class="pill atencao">Abaixo do mínimo</span>',
+  ok: '<span class="pill bom">Ok</span>',
+};
+
+function htmlEstoqueIngredientes() {
+  const d = dados();
+  if (!d.ingredientes.length) return vazio('Nenhum ingrediente cadastrado. Cadastre no Cardápio, na aba Ingredientes.');
+  const ordem = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR');
+  const grupos = [
+    ['Ingredientes', d.ingredientes.filter((i) => !i.embalagem).sort(ordem)],
+    ['Embalagens', d.ingredientes.filter((i) => i.embalagem).sort(ordem)],
+  ].filter(([, lista]) => lista.length);
+  return `
+    <p class="nota">Saem do estoque quando o pedido fica pronto, pela ficha técnica. Os salgados de estoque gastam quando você registra que produziu. Só entra na conta o que já foi contado.</p>
+    ${grupos.map(([titulo, lista]) => `
+      <section class="g-secao">
+        <h2>${titulo}</h2>
+        <div class="lista">${lista.map((ing) => `
+          <button type="button" class="ingrediente-linha" data-estoque-ingrediente="${esc(ing.id)}">
+            <span class="linha-info">
+              <strong>${esc(ing.nome)}</strong>
+              <span class="suave">${foiContado(ing)
+                ? `Mínimo: ${Number(ing.estoqueMinimo) > 0 ? esc(estoqueLegivel(ing.estoqueMinimo, ing.unidade)) : 'sem'}`
+                : 'Toque para contar'}</span>
+            </span>
+            <span class="linha-valores">
+              ${foiContado(ing) ? `<strong class="num">${esc(estoqueLegivel(Math.max(0, ing.estoque), ing.unidade))}</strong>` : ''}
+              ${PILL_INGREDIENTE[situacaoIngrediente(ing)]}
+            </span>
+          </button>`).join('')}
+        </div>
+      </section>`).join('')}`;
+}
+
+function tamanhoEmbalagem(ing) {
+  const { qtd, u } = compraLegivel(ing);
+  return `${num(qtd, 3)} ${u}`;
+}
+
+function dadosDasCompras() {
+  const ate = somarDias(hojeISO(), ui.diasCompras - 1);
+  return { ate, ...listaDeCompras(dados(), ate) };
+}
+
+function htmlCompras() {
+  const { ate, linhas, custoTotal } = dadosDasCompras();
+  const periodos = [[2, 'Até amanhã'], [7, '7 dias'], [15, '15 dias']];
+  return `
+    <div class="chips" role="group" aria-label="Período">
+      ${periodos.map(([dias, r]) => `<button type="button" class="chip" data-acao="dias-compras" data-valor="${dias}" aria-pressed="${ui.diasCompras === dias}">${r}</button>`).join('')}
+    </div>
+    <p class="nota">Conta os pedidos em aberto até ${esc(dataComDia(ate))}, os atrasados também, mais o estoque mínimo, e desconta o que você já tem. A quantidade vem arredondada para a embalagem que você compra.</p>
+    ${linhas.length ? `
+      <div class="tabela-rolagem"><table class="tabela">
+        <thead><tr><th>Comprar</th><th class="direita">Quantidade</th><th class="direita">Custo</th></tr></thead>
+        <tbody>${linhas.map((l) => {
+          const u = l.ingrediente.unidade;
+          const partes = [];
+          if (l.usa) partes.push(`pedidos usam ${estoqueLegivel(l.usa, u)}`);
+          if (l.minimo) partes.push(`mínimo ${estoqueLegivel(l.minimo, u)}`);
+          partes.push(l.contado ? `tem ${estoqueLegivel(l.tem, u)}` : 'sem contagem');
+          return `
+            <tr>
+              <td>${esc(l.ingrediente.nome)}<div class="detalhe-linha">${esc(partes.join(' · '))}</div></td>
+              <td class="direita">${esc(`${l.embalagens} × ${tamanhoEmbalagem(l.ingrediente)}`)}</td>
+              <td class="direita">${brl(l.custo)}</td>
+            </tr>`;
+        }).join('')}</tbody>
+        <tfoot><tr><td>Total estimado</td><td></td><td class="direita">${brl(custoTotal)}</td></tr></tfoot>
+      </table></div>
+      <div class="acoes">
+        <button class="btn" data-acao="comprei-lista">${icone('certo')} Comprei a lista</button>
+        <button class="btn btn-contorno" data-acao="copiar-lista-compras">${icone('copiar')} Copiar lista</button>
+      </div>` : vazio(`Nada para comprar até ${dataComDia(ate)}. O que você tem cobre os pedidos e o estoque mínimo.`)}`;
+}
+
+function textoDaListaDeCompras() {
+  const { ate, linhas, custoTotal } = dadosDasCompras();
+  const l = [`Compras · ${config().nome} · até ${dataComDia(ate)}`, ''];
+  for (const x of linhas) l.push(`- ${x.ingrediente.nome}: ${x.embalagens} × ${tamanhoEmbalagem(x.ingrediente)}`);
+  l.push('', `Total estimado: ${brl(custoTotal)}`);
+  return l.join('\n');
+}
+
+// Alerta da tela Hoje: o que acabou ou está acabando.
+function textoAlertaEstoque() {
+  const d = dados();
+  const esgotados = d.produtos.filter((p) => p.ativo !== false && situacaoProduto(p) === 'esgotado');
+  const acabando = d.produtos.filter((p) => p.ativo !== false && situacaoProduto(p) === 'acabando');
+  const ingredientes = d.ingredientes.filter((i) => ['esgotado', 'acabando'].includes(situacaoIngrediente(i)));
+  const partes = [];
+  if (esgotados.length) partes.push(esgotados.length === 1 ? `${esgotados[0].nome} esgotado no site` : `${esgotados.length} salgados esgotados no site`);
+  if (acabando.length) partes.push(acabando.length === 1 ? `${acabando[0].nome} acabando` : `${acabando.length} salgados acabando`);
+  if (ingredientes.length) partes.push(plural(ingredientes.length, 'item para repor', 'itens para repor'));
+  return { texto: partes.join(' · '), aba: esgotados.length || acabando.length ? 'prontos' : 'ingredientes' };
 }
 
 // ---------------------------------------------------------------------------
@@ -676,7 +918,7 @@ function linhaProduto(p, ficha, ingMap, alvo) {
     <button type="button" class="produto-linha${p.ativo === false ? ' fora-do-site' : ''}" data-abrir-produto="${esc(p.id)}">
       <span class="linha-info">
         <strong>${esc(p.nome)}</strong>
-        <span class="suave">${esc(rotuloVenda(p))}${p.ativo === false ? ' · fora do site' : ''}</span>
+        <span class="suave">${esc(rotuloVenda(p))}${controlaEstoque(p) ? esc(` · ${esgotado(p) ? 'esgotado' : `${qtdVenda(p, p.estoque)} no estoque`}`) : ''}${p.ativo === false ? ' · fora do site' : ''}</span>
       </span>
       <span class="linha-valores">
         <strong class="num">${brl(p.preco)}</strong>
@@ -1116,7 +1358,7 @@ function abrirPedido(id) {
   const formas = [...new Set([...(config().formasPagamento || []), ...formasAntecipadas(config()), p.pagamento?.forma].filter(Boolean))];
 
   const opcoesProdutos = agrupar(produtos, (x) => x.categoria || 'Cardápio').map(([cat, lista]) => `
-    <optgroup label="${esc(cat)}">${lista.map((x) => `<option value="${esc(x.id)}">${esc(x.nome)} · ${brl(x.preco)} ${esc(rotuloVenda(x))}</option>`).join('')}</optgroup>`).join('');
+    <optgroup label="${esc(cat)}">${lista.map((x) => `<option value="${esc(x.id)}">${esc(x.nome)} · ${brl(x.preco)} ${esc(rotuloVenda(x))}${controlaEstoque(x) ? esc(` · ${esgotado(x) ? 'esgotado' : `${qtdVenda(x, x.estoque)} no estoque`}`) : ''}</option>`).join('')}</optgroup>`).join('');
 
   const corpo = `
     <div class="secao-janela">
@@ -1382,7 +1624,7 @@ function abrirPedido(id) {
           else $('#ped-link').select();
         });
       } else if (acao === 'excluir') {
-        store.excluir('pedidos', p.id);
+        if (existente) excluirPedidos([existente]);
         fecharJanela();
         aviso('Pedido excluído');
       }
@@ -1407,9 +1649,9 @@ function abrirPedido(id) {
         obs: valor('obs').trim(),
       });
       Object.assign(p, totaisPedido(p));
-      store.salvar('pedidos', p);
+      const faltas = salvarPedido(p);
       fecharJanela();
-      aviso(existente ? 'Pedido salvo' : `Pedido #${p.codigo} criado`);
+      avisoComFaltas(existente ? 'Pedido salvo' : `Pedido #${p.codigo} criado`, faltas);
     },
   });
 }
@@ -1431,6 +1673,7 @@ function abrirProduto(id) {
   const ingMap = porId(d.ingredientes);
   const ingredientes = [...d.ingredientes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const tipoVenda = (Number(prod.rende) || 1) <= 1 ? 'unidade' : prod.unidade === 'cento' ? 'cento' : 'pacote';
+  const estoqueInicial = numeroInput(Number(prod.estoque) || 0);
 
   const corpo = `
     <div class="secao-janela">
@@ -1453,11 +1696,16 @@ function abrirProduto(id) {
       </div>
       <label class="check" id="pr-campo-meio" ${tipoVenda === 'cento' ? '' : 'hidden'}><input type="checkbox" name="meioCento" ${Number(prod.passo) < 1 ? 'checked' : ''}> Aceita meio cento (50 un)</label>
       <label class="check"><input type="checkbox" name="ativo" ${prod.ativo !== false ? 'checked' : ''}> Mostrar na página de vendas</label>
+      <label class="check"><input type="checkbox" name="controlarEstoque" ${controlaEstoque(prod) ? 'checked' : ''}> Controlar estoque (para o que fica pronto, como os congelados)</label>
+      <div class="grade-campos" id="pr-estoque" ${controlaEstoque(prod) ? '' : 'hidden'}>
+        <label class="campo"><span>Prontos agora</span><span class="com-sufixo sufixo-largo"><input name="estoque" id="pr-estoque-qtd" inputmode="decimal" value="${estoqueInicial}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>Quando acaba, o site mostra Esgotado.</small></label>
+        <label class="campo"><span>Estoque mínimo</span><span class="com-sufixo sufixo-largo"><input name="estoqueMinimo" id="pr-estoque-min" inputmode="decimal" value="${Number(prod.estoqueMinimo) > 0 ? numeroInput(prod.estoqueMinimo) : ''}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>Quando chegar nele, avisa na tela Hoje.</small></label>
+      </div>
     </div>
 
     <div class="secao-janela">
       <h3>Ficha técnica</h3>
-      <p class="suave">Liste os ingredientes de uma receita, do jeito que você faz numa leva, e quantos salgados ela rende.</p>
+      <p class="suave">Liste os ingredientes de uma receita, do jeito que você faz numa leva, e quantos salgados ela rende. Ponha também as embalagens que a receita inteira usa, como 1 caixa para cada cento.</p>
       <label class="campo" style="max-width:260px"><span>A receita rende</span><span class="com-sufixo"><input name="rendimento" id="pr-rendimento" inputmode="numeric" value="${numeroInput(ficha.rendimento)}" placeholder="Ex.: 100"><span>salgados</span></span></label>
       <div class="itens-editor" id="pr-ficha"></div>
       ${ingredientes.length ? `
@@ -1467,7 +1715,7 @@ function abrirProduto(id) {
         </div>` : '<p class="nota">Cadastre os ingredientes na aba Ingredientes do Cardápio para montar a ficha.</p>'}
       <div class="grade-campos">
         <label class="campo"><span>Gás, óleo, energia e perdas</span><span class="com-sufixo"><input name="outrosPct" id="pr-outros" inputmode="decimal" value="${num(ficha.outrosPct)}"><span>%</span></span><small>Somado ao custo dos ingredientes.</small></label>
-        <label class="campo"><span>Embalagem por venda</span><span class="com-prefixo"><span>R$</span><input name="embalagem" id="pr-embalagem" inputmode="decimal" value="${dinheiroInput(ficha.embalagem)}"></span><small>Caixa, saquinho, etiqueta…</small></label>
+        <label class="campo"><span>Embalagem por venda</span><span class="com-prefixo"><span>R$</span><input name="embalagem" id="pr-embalagem" inputmode="decimal" value="${dinheiroInput(ficha.embalagem)}"></span><small>Caixa, saquinho, etiqueta… Deixe zero se as embalagens já estão na receita.</small></label>
       </div>
     </div>
 
@@ -1497,6 +1745,8 @@ function abrirProduto(id) {
       preco: lerNumero(valor('preco')),
       unidade, rende, passo,
       ativo: campo('ativo').checked,
+      controlarEstoque: campo('controlarEstoque').checked,
+      estoqueMinimo: Math.max(0, lerNumero(valor('estoqueMinimo'))),
     };
   }
 
@@ -1570,9 +1820,13 @@ function abrirProduto(id) {
     },
     aoDigitar(e) {
       const nome = e.target.name;
-      if (nome === 'tipoVenda') {
-        $('#pr-campo-pacote').hidden = e.target.value !== 'pacote';
-        $('#pr-campo-meio').hidden = e.target.value !== 'cento';
+      if (nome === 'tipoVenda' || nome === 'rendePacote') {
+        $('#pr-campo-pacote').hidden = valor('tipoVenda') !== 'pacote';
+        $('#pr-campo-meio').hidden = valor('tipoVenda') !== 'cento';
+        const sufixo = sufixoVenda(lerProduto());
+        document.querySelectorAll('.pr-sufixo').forEach((el) => { el.textContent = sufixo; });
+      } else if (nome === 'controlarEstoque') {
+        $('#pr-estoque').hidden = !e.target.checked;
       } else if (nome === 'qtd-ing') {
         const i = Number(e.target.dataset.i);
         ficha.itens[i].qtd = lerNumero(e.target.value);
@@ -1609,6 +1863,13 @@ function abrirProduto(id) {
       if (!(novo.preco > 0)) return erroNaJanela('Coloque o preço de venda.');
       if (f.itens.length && !(f.rendimento > 0)) return erroNaJanela('Diga quantos salgados a receita rende.');
       if (!novo.categoria) novo.categoria = 'Cardápio';
+      // O estoque pode ter mudado com pedidos enquanto a janela estava aberta:
+      // só troca o número se a pessoa mexeu nele.
+      const atual = dados().produtos.find((x) => x.id === prod.id);
+      const texto = valor('estoque').trim();
+      if (novo.controlarEstoque || atual?.estoque != null) {
+        novo.estoque = texto !== estoqueInicial ? lerNumero(texto) : (Number(atual?.estoque) || 0);
+      }
       store.salvar('produtos', novo);
       if (f.itens.length) store.salvar('fichas', f);
       else if (fichaExistente) store.excluir('fichas', prod.id);
@@ -1626,9 +1887,12 @@ function abrirIngrediente(id) {
   const ing = existente ? structuredClone(existente) : { id: novoId('ing-'), nome: '', unidade: 'g', qtdEmbalagem: 1000, precoEmbalagem: 0, compraUnidade: 'kg' };
   const { qtd, u } = compraLegivel(ing);
   const usos = produtosQueUsam(ing.id);
+  let unidadeMostrada = u;
+  const estoqueInicial = foiContado(ing) ? numeroInput(ing.estoque / UNIDADES_COMPRA[u][1]) : '';
 
   const corpo = `
     <label class="campo"><span>Nome</span><input name="nome" id="ing-nome" value="${esc(ing.nome)}" maxlength="80" placeholder="Ex.: Farinha de trigo"></label>
+    <label class="check"><input type="checkbox" name="embalagem" ${ing.embalagem ? 'checked' : ''}> É embalagem (caixa, saquinho, etiqueta)</label>
     <div class="secao-janela">
       <h3>Como você compra</h3>
       <div class="grade-campos">
@@ -1639,6 +1903,13 @@ function abrirIngrediente(id) {
         <label class="campo"><span>Preço pago</span><span class="com-prefixo"><span>R$</span><input name="precoCompra" id="ing-preco" inputmode="decimal" value="${dinheiroInput(ing.precoEmbalagem)}"></span></label>
       </div>
       <p class="nota" id="ing-calculo"></p>
+    </div>
+    <div class="secao-janela">
+      <h3>Estoque</h3>
+      <div class="grade-campos">
+        <label class="campo"><span>Tem agora</span><span class="com-sufixo"><input name="estoque" id="ing-estoque" inputmode="decimal" value="${estoqueInicial}"><span class="ing-sufixo">${esc(u)}</span></span><small>Vazio: fica sem controle de estoque.</small></label>
+        <label class="campo"><span>Estoque mínimo</span><span class="com-sufixo"><input name="estoqueMinimo" id="ing-minimo" inputmode="decimal" value="${Number(ing.estoqueMinimo) > 0 ? numeroInput(ing.estoqueMinimo / UNIDADES_COMPRA[u][1]) : ''}"><span class="ing-sufixo">${esc(u)}</span></span></label>
+      </div>
     </div>
     ${usos.length ? `<div class="secao-janela"><h3>Usado em</h3><p>${esc(usos.join(', '))}</p></div>` : ''}`;
 
@@ -1652,7 +1923,24 @@ function abrirIngrediente(id) {
       qtdEmbalagem: lerNumero(valor('qtdCompra')) * fator,
       precoEmbalagem: lerNumero(valor('precoCompra')),
       compraUnidade: un,
+      embalagem: campo('embalagem').checked,
+      estoqueMinimo: Math.max(0, lerNumero(valor('estoqueMinimo'))) * fator,
     };
+  }
+
+  // Trocar kg por g (ou L por ml) converte os números do estoque; trocar o tipo de unidade, não.
+  function trocarUnidadeDoEstoque() {
+    const nova = valor('unidadeCompra');
+    const [baseAntes, fatorAntes] = UNIDADES_COMPRA[unidadeMostrada];
+    const [baseNova, fatorNovo] = UNIDADES_COMPRA[nova];
+    if (baseAntes === baseNova) {
+      for (const nome of ['estoque', 'estoqueMinimo']) {
+        const texto = valor(nome).trim();
+        if (texto) campo(nome).value = numeroInput((lerNumero(texto) * fatorAntes) / fatorNovo);
+      }
+    }
+    document.querySelectorAll('.ing-sufixo').forEach((el) => { el.textContent = nova; });
+    unidadeMostrada = nova;
   }
 
   function atualizar() {
@@ -1672,7 +1960,10 @@ function abrirIngrediente(id) {
       atualizar();
       if (!existente) $('#ing-nome').focus();
     },
-    aoDigitar: atualizar,
+    aoDigitar(e) {
+      if (e.target.name === 'unidadeCompra') trocarUnidadeDoEstoque();
+      atualizar();
+    },
     aoClicar(acao) {
       if (acao !== 'excluir') return;
       store.excluir('ingredientes', ing.id);
@@ -1688,9 +1979,203 @@ function abrirIngrediente(id) {
       const novo = ler();
       if (!novo.nome) return erroNaJanela('Dê um nome ao ingrediente.');
       if (!(novo.qtdEmbalagem > 0)) return erroNaJanela('Informe a quantidade que vem na embalagem.');
+      // Só troca o estoque se a pessoa mexeu nele: pedidos podem ter dado baixa enquanto isso.
+      const texto = valor('estoque').trim();
+      const atual = dados().ingredientes.find((x) => x.id === ing.id);
+      if (!texto) delete novo.estoque;
+      else if (texto !== estoqueInicial || !foiContado(atual)) novo.estoque = lerNumero(texto) * UNIDADES_COMPRA[valor('unidadeCompra')][1];
+      else novo.estoque = atual.estoque;
       store.salvar('ingredientes', novo);
       fecharJanela();
       aviso('Ingrediente salvo');
+    },
+  });
+}
+
+// ---------- Estoque ----------
+
+function abrirEstoqueProduto(id) {
+  const d = dados();
+  const prod = d.produtos.find((x) => x.id === id);
+  if (!prod) return;
+  const controla = controlaEstoque(prod);
+  const tem = Number(prod.estoque) || 0;
+  const novos = emPedidosNovos(d.pedidos, porId(d.produtos))[prod.id] || 0;
+  const sufixo = sufixoVenda(prod);
+  const ctx = contexto(d);
+
+  const corpo = `
+    <label class="check"><input type="checkbox" name="controlar" id="est-controlar" ${controla ? 'checked' : ''}> Controlar o estoque deste produto</label>
+    <div class="secao-janela" id="est-campos" ${controla ? '' : 'hidden'}>
+      ${controla ? `<p class="estoque-agora">Agora: <strong>${esc(tem < 0 ? `faltam ${qtdVenda(prod, -tem)}` : qtdVenda(prod, tem))}</strong>${novos ? `<br><span class="suave">${esc(qtdVenda(prod, novos))} em pedidos novos, que saem quando você confirmar</span>` : ''}</p>` : ''}
+      <div class="opcoes">
+        <label class="opcao"><input type="radio" name="modo" value="produzi" ${controla ? 'checked' : ''}> Produzi mais</label>
+        <label class="opcao"><input type="radio" name="modo" value="contei" ${controla ? '' : 'checked'}> Contei o que tem</label>
+      </div>
+      <label class="campo" style="max-width:260px"><span id="est-rotulo"></span><span class="com-sufixo sufixo-largo"><input name="quantidade" id="est-qtd" inputmode="decimal" autocomplete="off"><span>${esc(sufixo)}</span></span></label>
+      <p class="nota" id="est-gasto" hidden></p>
+      <label class="campo" style="max-width:260px"><span>Estoque mínimo</span><span class="com-sufixo sufixo-largo"><input name="minimo" id="est-minimo" inputmode="decimal" value="${Number(prod.estoqueMinimo) > 0 ? numeroInput(prod.estoqueMinimo) : ''}"><span>${esc(sufixo)}</span></span><small>Quando chegar nele, avisa na tela Hoje. Vazio: não avisa.</small></label>
+    </div>`;
+
+  function atualizar() {
+    const ligado = campo('controlar').checked;
+    $('#est-campos').hidden = !ligado;
+    const produzi = valor('modo') === 'produzi';
+    $('#est-rotulo').textContent = produzi ? 'Quanto produziu' : 'Quanto tem pronto agora';
+    const qtd = lerNumero(valor('quantidade'));
+    const nota = $('#est-gasto');
+    nota.hidden = !(ligado && produzi && qtd > 0);
+    if (nota.hidden) return;
+    const gasto = movimentoDaProducao(prod, qtd, ctx).filter(([colecao]) => colecao === 'ingredientes');
+    nota.textContent = gasto.length
+      ? `Sai do estoque de ingredientes: ${gasto.map(([, ingId, , q]) => {
+        const ing = ctx.ingredientesPorId[ingId];
+        return `${estoqueLegivel(-q, ing.unidade)} de ${ing.nome.toLowerCase()}`;
+      }).join(', ')}.`
+      : 'Os ingredientes não saem do estoque: falta a ficha técnica ou a contagem dos ingredientes.';
+  }
+
+  abrirJanela({
+    titulo: prod.nome,
+    corpo,
+    rodape: rodapeEditor(),
+    aoAbrir: atualizar,
+    aoDigitar: atualizar,
+    aoSalvar() {
+      const texto = valor('quantidade').trim();
+      const qtd = lerNumero(texto);
+      if (!campo('controlar').checked) {
+        if (controla) store.emConjunto({ mudar: [['produtos', prod.id, { controlarEstoque: false }]] });
+        fecharJanela();
+        aviso(controla ? `${prod.nome}: sem controle de estoque` : 'Nada mudou');
+        return;
+      }
+      const campos = { controlarEstoque: true, estoqueMinimo: Math.max(0, lerNumero(valor('minimo'))) };
+      if (valor('modo') === 'contei') {
+        if (!texto) return erroNaJanela('Diga quanto tem pronto agora. Pode ser zero.');
+        campos.estoque = Math.max(0, qtd);
+        store.emConjunto({ mudar: [['produtos', prod.id, campos]] });
+        fecharJanela();
+        aviso(`${prod.nome}: ${qtdVenda(prod, campos.estoque)} no estoque`);
+        return;
+      }
+      if (texto && !(qtd > 0)) return erroNaJanela('Diga quanto produziu.');
+      if (!controla && !texto) return erroNaJanela('Diga quanto produziu, ou escolha "Contei o que tem".');
+      let somar = qtd > 0 ? movimentoDaProducao(prod, qtd, ctx) : [];
+      if (!controla) {
+        // Primeira vez: o que produziu é o que tem.
+        campos.estoque = qtd;
+        somar = somar.filter(([colecao]) => colecao === 'ingredientes');
+      }
+      store.emConjunto({ mudar: [['produtos', prod.id, campos]], somar });
+      fecharJanela();
+      aviso(qtd > 0 ? `${prod.nome}: mais ${qtdVenda(prod, qtd)} no estoque` : 'Estoque salvo');
+    },
+  });
+}
+
+function abrirEstoqueIngrediente(id) {
+  const ing = dados().ingredientes.find((x) => x.id === id);
+  if (!ing) return;
+  const contado = foiContado(ing);
+  const { qtd: tamanho, u } = compraLegivel(ing);
+  const fator = UNIDADES_COMPRA[u][1];
+  const preco = Number(ing.precoEmbalagem) || 0;
+  const categoria = ing.embalagem ? 'Embalagens' : 'Ingredientes';
+
+  const corpo = `
+    ${contado
+      ? `<p class="estoque-agora">Agora: <strong>${esc(estoqueLegivel(Math.max(0, ing.estoque), ing.unidade))}</strong></p>`
+      : '<p class="suave">Ainda sem contagem. Enquanto isso, fica fora das baixas e entra inteiro na lista de compras.</p>'}
+    <div class="opcoes">
+      <label class="opcao"><input type="radio" name="modo" value="comprei" ${contado ? 'checked' : ''}> Comprei</label>
+      <label class="opcao"><input type="radio" name="modo" value="contei" ${contado ? '' : 'checked'}> Contei o que tem</label>
+    </div>
+    <div class="secao-janela" id="est-comprei">
+      <div class="grade-campos">
+        <label class="campo"><span>Embalagens de ${esc(`${num(tamanho, 3)} ${u}`)}</span><input name="embalagens" id="est-embalagens" inputmode="decimal" value="1"></label>
+        <label class="campo"><span>Valor pago</span><span class="com-prefixo"><span>R$</span><input name="valorPago" id="est-valor" inputmode="decimal" value="${dinheiroInput(preco)}"></span></label>
+      </div>
+      <label class="check"><input type="checkbox" name="lancar" id="est-lancar"> Lançar o valor nas despesas (${categoria})</label>
+    </div>
+    <label class="campo" id="est-contei" style="max-width:260px"><span>Quanto tem agora</span><span class="com-sufixo"><input name="contagem" id="est-contagem" inputmode="decimal" value="${contado ? numeroInput(Math.max(0, ing.estoque) / fator) : ''}"><span>${esc(u)}</span></span></label>
+    <label class="campo" style="max-width:260px"><span>Estoque mínimo</span><span class="com-sufixo"><input name="minimo" id="est-minimo" inputmode="decimal" value="${Number(ing.estoqueMinimo) > 0 ? numeroInput(ing.estoqueMinimo / fator) : ''}"><span>${esc(u)}</span></span><small>Abaixo disso, entra na lista de compras.</small></label>`;
+
+  let valorMexido = false;
+  function atualizar(e) {
+    const comprei = valor('modo') === 'comprei';
+    $('#est-comprei').hidden = !comprei;
+    $('#est-contei').hidden = comprei;
+    if (e?.target?.name === 'valorPago') valorMexido = true;
+    if (e?.target?.name === 'embalagens' && !valorMexido) campo('valorPago').value = dinheiroInput(lerNumero(valor('embalagens')) * preco);
+  }
+
+  abrirJanela({
+    titulo: ing.nome,
+    corpo,
+    rodape: rodapeEditor(),
+    aoAbrir: atualizar,
+    aoDigitar: atualizar,
+    aoSalvar() {
+      const minimo = Math.max(0, lerNumero(valor('minimo'))) * fator;
+      if (valor('modo') === 'contei') {
+        const texto = valor('contagem').trim();
+        if (!texto) return erroNaJanela('Diga quanto tem agora. Pode ser zero.');
+        store.emConjunto({ mudar: [['ingredientes', ing.id, { estoque: Math.max(0, lerNumero(texto)) * fator, estoqueMinimo: minimo }]] });
+        fecharJanela();
+        aviso(`${ing.nome}: estoque contado`);
+        return;
+      }
+      const n = lerNumero(valor('embalagens'));
+      if (!(n > 0)) return erroNaJanela('Diga quantas embalagens comprou.');
+      const valorPago = lerNumero(valor('valorPago'));
+      const salvar = campo('lancar').checked && valorPago > 0
+        ? [['lancamentos', { id: novoId('l-'), data: hojeISO(), tipo: 'saida', categoria, descricao: `${ing.nome} (${num(n)} × ${num(tamanho, 3)} ${u})`, valor: valorPago }]]
+        : [];
+      store.emConjunto({
+        salvar,
+        somar: [['ingredientes', ing.id, 'estoque', n * (Number(ing.qtdEmbalagem) || 0)]],
+        mudar: [['ingredientes', ing.id, { estoqueMinimo: minimo }]],
+      });
+      fecharJanela();
+      aviso(salvar.length ? `${ing.nome}: somado ao estoque e lançado nas despesas` : `${ing.nome}: somado ao estoque`);
+    },
+  });
+}
+
+function abrirCompraDaLista() {
+  const { ate, linhas } = dadosDasCompras();
+  if (!linhas.length) return;
+  const custo = (embalagem) => linhas.filter((l) => Boolean(l.ingrediente.embalagem) === embalagem).reduce((t, l) => t + l.custo, 0);
+  const valores = [['valorIngredientes', 'Ingredientes', custo(false)], ['valorEmbalagens', 'Embalagens', custo(true)]].filter(([, , v]) => v > 0);
+
+  const corpo = `
+    <p>Soma ao estoque o que está na lista de compras até ${esc(dataComDia(ate))}:</p>
+    <ul class="lista-simples">${linhas.map((l) => `<li>${esc(l.ingrediente.nome)}: ${esc(`${l.embalagens} × ${tamanhoEmbalagem(l.ingrediente)}`)}</li>`).join('')}</ul>
+    <p class="suave">Se comprou diferente, acerte depois item por item na aba Ingredientes.</p>
+    <label class="check"><input type="checkbox" name="lancar" id="lista-lancar"> Lançar nas despesas de hoje</label>
+    <div class="grade-campos" id="lista-valores" hidden>
+      ${valores.map(([nome, rotulo, v]) => `<label class="campo"><span>${rotulo}</span><span class="com-prefixo"><span>R$</span><input name="${nome}" inputmode="decimal" value="${dinheiroInput(v)}"></span></label>`).join('')}
+    </div>`;
+
+  abrirJanela({
+    titulo: 'Comprei a lista',
+    corpo,
+    rodape: rodapeEditor({ salvar: 'Somar ao estoque' }),
+    aoDigitar() {
+      $('#lista-valores').hidden = !campo('lancar').checked;
+    },
+    aoSalvar() {
+      const somar = linhas.map((l) => ['ingredientes', l.ingrediente.id, 'estoque', l.embalagens * (Number(l.ingrediente.qtdEmbalagem) || 0)]);
+      const salvar = !campo('lancar').checked ? [] : valores
+        .map(([nome, categoria]) => [categoria, lerNumero(valor(nome))])
+        .filter(([, v]) => v > 0)
+        .map(([categoria, v]) => ['lancamentos', {
+          id: novoId('l-'), data: hojeISO(), tipo: 'saida', categoria, descricao: 'Compras da lista do estoque', valor: v,
+        }]);
+      store.emConjunto({ salvar, somar });
+      fecharJanela();
+      aviso(salvar.length ? 'Estoque atualizado e compra lançada nas despesas' : 'Estoque atualizado');
     },
   });
 }
@@ -1787,20 +2272,20 @@ function avancarStatus(id) {
   const p = dados().pedidos.find((x) => x.id === id);
   const prox = p && PROXIMO_STATUS[p.status];
   if (!prox) return;
-  store.salvar('pedidos', { ...p, status: prox[0] });
-  aviso(`${(p.cliente?.nome || 'Pedido').split(' ')[0]}: ${STATUS[prox[0]].toLowerCase()}`);
+  const faltas = salvarPedido({ ...p, status: prox[0] });
+  avisoComFaltas(`${(p.cliente?.nome || 'Pedido').split(' ')[0]}: ${STATUS[prox[0]].toLowerCase()}`, faltas);
 }
 
 function marcarPago(id) {
   const p = dados().pedidos.find((x) => x.id === id);
   if (!p) return;
-  store.salvar('pedidos', { ...p, pagamento: { ...p.pagamento, pago: true, pagoEm: hojeISO() } });
+  salvarPedido({ ...p, pagamento: { ...p.pagamento, pago: true, pagoEm: hojeISO() } });
   aviso(`Pagamento de ${brl(p.total)} registrado`);
 }
 
 async function apagarExemplos() {
   const d = dados();
-  await store.excluirVarios('pedidos', d.pedidos.filter((p) => p.exemplo).map((p) => p.id));
+  await excluirPedidos(d.pedidos.filter((p) => p.exemplo));
   await store.excluirVarios('lancamentos', d.lancamentos.filter((l) => l.exemplo).map((l) => l.id));
   aviso('Exemplos apagados');
 }
@@ -1819,6 +2304,7 @@ document.addEventListener('click', async (e) => {
       ui.filtroPedidos = ir.dataset.filtro;
       ui.abaPedidos = 'pedidos';
     }
+    if (ir.dataset.aba) ui.abaEstoque = ir.dataset.aba;
     irPara(ir.dataset.ir);
     return;
   }
@@ -1830,6 +2316,10 @@ document.addEventListener('click', async (e) => {
   if (alvoIngrediente) return abrirIngrediente(alvoIngrediente.dataset.abrirIngrediente);
   const alvoLancamento = e.target.closest('[data-abrir-lancamento]');
   if (alvoLancamento) return abrirLancamento(alvoLancamento.dataset.abrirLancamento);
+  const alvoEstoqueProduto = e.target.closest('[data-estoque-produto]');
+  if (alvoEstoqueProduto) return abrirEstoqueProduto(alvoEstoqueProduto.dataset.estoqueProduto);
+  const alvoEstoqueIngrediente = e.target.closest('[data-estoque-ingrediente]');
+  if (alvoEstoqueIngrediente) return abrirEstoqueIngrediente(alvoEstoqueIngrediente.dataset.estoqueIngrediente);
 
   const botao = e.target.closest('[data-acao]');
   if (!botao) return;
@@ -1864,6 +2354,18 @@ document.addEventListener('click', async (e) => {
     case 'aba-cardapio':
       ui.abaCardapio = v;
       desenhar();
+      break;
+    case 'aba-estoque':
+      ui.abaEstoque = v;
+      desenhar();
+      break;
+    case 'dias-compras':
+      ui.diasCompras = Number(v);
+      desenhar();
+      break;
+    case 'comprei-lista': abrirCompraDaLista(); break;
+    case 'copiar-lista-compras':
+      aviso(await copiarTexto(textoDaListaDeCompras()) ? 'Lista copiada. Cole no WhatsApp ou nas notas.' : 'Não deu para copiar neste aparelho.');
       break;
     case 'novo-produto': abrirProduto(); break;
     case 'novo-ingrediente': abrirIngrediente(); break;

@@ -3,7 +3,7 @@
 Site gratuito da Bibi Salgados, com duas partes:
 
 - **Página de vendas** (`index.html`): cardápio, carrinho e pedido que já vai escrito para o WhatsApp.
-- **Gestão** (`gestao.html`): pedidos do dia, o que produzir, ingredientes da produção, cardápio com ficha técnica e custo de cada salgado, finanças do mês e ajustes do negócio.
+- **Gestão** (`gestao.html`): pedidos do dia, o que produzir, ingredientes da produção, estoque e lista de compras, cardápio com ficha técnica e custo de cada salgado, finanças do mês e ajustes do negócio.
 
 Tudo roda de graça: o site fica no **GitHub Pages** e os dados no **Firebase** (plano Spark, gratuito).
 
@@ -32,6 +32,16 @@ Com a InfiniteTag, o editor de pedidos da gestão também cria um link de pagame
 
 Esses pedidos aparecem na gestão como **Aguardando pagamento** até serem marcados como pagos. A InfinitePay avisa o dono de cada venda no app, com o código do pedido.
 
+## Estoque
+
+A tela **Estoque** da gestão tem três abas:
+
+- **Prontos**: salgados que ficam prontos esperando venda, como os congelados. Liga produto por produto. O pedido tira do estoque quando é confirmado e devolve se for cancelado. Quando acaba, o site mostra **Esgotado** e não deixa pôr mais do que tem no carrinho. **Produzi mais** soma ao estoque e gasta os ingredientes pela ficha técnica.
+- **Ingredientes**: ingredientes e embalagens (caixa, saquinho, etiqueta). Saem do estoque quando o pedido fica pronto, pela ficha técnica. Só entra nas baixas o que já foi contado uma vez. **Comprei** soma ao estoque e pode lançar o valor nas despesas.
+- **Compras**: o que comprar para os pedidos em aberto dos próximos dias mais o estoque mínimo, menos o que já tem, arredondado para a embalagem de compra. **Comprei a lista** soma tudo de uma vez.
+
+As embalagens entram na ficha técnica como os ingredientes, por receita, e ficam fora do acréscimo de gás, óleo e perdas. A tela **Hoje** avisa quando um salgado esgota ou um ingrediente fica abaixo do mínimo.
+
 ## Ligar o Firebase
 
 1. Em [console.firebase.google.com](https://console.firebase.google.com), crie um projeto.
@@ -59,6 +69,7 @@ assets/css/             estilos (base.css é comum às duas páginas)
 assets/js/config.js     configuração do Firebase
 assets/js/store.js      onde os dados ficam (nuvem ou navegador)
 assets/js/calculos.js   custo da ficha técnica, produção, resumo financeiro
+assets/js/estoque.js    reservas, baixas e lista de compras do estoque
 assets/js/pix.js        Pix copia e cola com valor (BR Code) e QR Code
 assets/js/infinitepay.js  cartão pelo site, pela página de pagamento da InfinitePay
 assets/js/vendor/       qrcode-generator (MIT), usado para desenhar o QR Code

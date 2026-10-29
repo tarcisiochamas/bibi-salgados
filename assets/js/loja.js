@@ -10,6 +10,7 @@ import {
 } from './calculos.js';
 import { lerChavePix, codigoPix, desenharQrPix } from './pix.js';
 import { criarCobranca, lerRetorno, conferirPagamento } from './infinitepay.js';
+import { maximoParaVender, esgotado } from './estoque.js';
 import { icone } from './icones.js';
 
 const CHAVE_CARRINHO = 'bibi-salgados:carrinho';
@@ -56,6 +57,7 @@ function atualizar(dados) {
   for (const id of Object.keys(carrinho)) {
     if (!produtos.some((p) => p.id === id)) delete carrinho[id];
   }
+  ajustarAoEstoque();
   document.title = config.nome;
   desenharLetreiro();
   desenharCardapio();
@@ -128,6 +130,14 @@ function rotuloUnidade(p) {
   return `o ${p.unidade}`;
 }
 
+// "3 pacotes", "150 un", "6 un"
+function textoDisponivel(p, qtd) {
+  const rende = Number(p.rende) || 1;
+  if (rende <= 1 || p.unidade === 'cento' || !Number.isInteger(qtd)) return `${num(qtd * rende)} un`;
+  const palavra = String(p.unidade || 'pacote').split(' ')[0];
+  return `${num(qtd)} ${qtd === 1 ? palavra : `${palavra}s`}`;
+}
+
 function qtdNoSeletor(p, qtd) {
   if (p.unidade === 'cento' || !Number.isInteger(qtd)) return `${num(qtd * (Number(p.rende) || 1))} un`;
   return num(qtd);
@@ -135,20 +145,23 @@ function qtdNoSeletor(p, qtd) {
 
 function htmlSeletor(p, qtd) {
   if (!qtd) {
+    if (esgotado(p)) return '<span class="item-esgotado">Esgotado</span>';
     return `<button type="button" class="btn btn-pequeno btn-contorno" data-acao="mais" data-id="${esc(p.id)}">${icone('mais')} Adicionar</button>`;
   }
+  const max = maximoParaVender(p);
+  const noLimite = max != null && qtd + (Number(p.passo) || 1) > max + 1e-9;
   return `
     <div class="qtd" role="group" aria-label="Quantidade de ${esc(p.nome)}">
       <button type="button" data-acao="menos" data-id="${esc(p.id)}" aria-label="Tirar um">−</button>
       <output aria-live="polite">${esc(qtdNoSeletor(p, qtd))}</output>
-      <button type="button" data-acao="mais" data-id="${esc(p.id)}" aria-label="Pôr mais um">+</button>
+      <button type="button" data-acao="mais" data-id="${esc(p.id)}" aria-label="Pôr mais um"${noLimite ? ' aria-disabled="true"' : ''}>+</button>
     </div>`;
 }
 
 function htmlItem(p) {
   const qtd = carrinho[p.id] || 0;
   return `
-    <article class="item${qtd ? ' no-pedido' : ''}" data-item="${esc(p.id)}">
+    <article class="item${qtd ? ' no-pedido' : ''}${esgotado(p) ? ' esgotado' : ''}" data-item="${esc(p.id)}">
       <div class="item-linha">
         <h3>${esc(p.nome)}</h3>
         <span class="item-pontilhado" aria-hidden="true"></span>
@@ -197,10 +210,34 @@ function mudarQtd(id, direcao) {
   if (!p) return;
   const passo = Number(p.passo) || 1;
   const nova = Math.max(0, Math.round(((carrinho[id] || 0) + direcao * passo) * 100) / 100);
+  const max = maximoParaVender(p);
+  if (direcao > 0 && max != null && nova > max + 1e-9) {
+    avisoRapido(max > 0 ? `Só temos ${textoDisponivel(p, max)} de ${p.nome} agora.` : `${p.nome} esgotou.`);
+    return;
+  }
   if (nova > 0) carrinho[id] = nova; else delete carrinho[id];
   gravarLocal(CHAVE_CARRINHO, carrinho);
   redesenharItem(id);
   desenharBarra();
+}
+
+// O estoque mudou (ou o carrinho ficou guardado de outro dia): tira do
+// carrinho o que passou do que tem pronto.
+function ajustarAoEstoque() {
+  const ajustados = [];
+  for (const [id, qtd] of Object.entries(carrinho)) {
+    const p = produtos.find((x) => x.id === id);
+    const max = maximoParaVender(p);
+    if (max == null || qtd <= max + 1e-9) continue;
+    if (max > 0) carrinho[id] = max; else delete carrinho[id];
+    ajustados.push([p, max]);
+  }
+  if (!ajustados.length) return;
+  gravarLocal(CHAVE_CARRINHO, carrinho);
+  const [p, max] = ajustados[0];
+  if (ajustados.length > 1) avisoRapido('Alguns salgados acabaram. Ajustamos seu pedido.');
+  else if (max > 0) avisoRapido(`Só temos ${textoDisponivel(p, max)} de ${p.nome} agora. Ajustamos seu pedido.`);
+  else avisoRapido(`${p.nome} esgotou e saiu do seu pedido.`);
 }
 
 function itensDoCarrinho() {
@@ -314,6 +351,13 @@ function validar(form, pedido) {
   else if (form.data < dataMinima()) erros.data = `O primeiro dia disponível é ${dataComDia(dataMinima())}.`;
   if (pedido.subtotal < (Number(config.pedidoMinimo) || 0)) {
     erros.itens = `O pedido mínimo é de ${brl(config.pedidoMinimo)}.`;
+  }
+  for (const it of pedido.itens) {
+    const p = produtos.find((x) => x.id === it.produtoId);
+    const max = maximoParaVender(p);
+    if (max != null && it.qtd > max + 1e-9) {
+      erros.itens = max > 0 ? `Só temos ${textoDisponivel(p, max)} de ${p.nome}.` : `${p.nome} esgotou. Tire do pedido para continuar.`;
+    }
   }
   return erros;
 }
@@ -622,11 +666,13 @@ function abrirFinalizar() {
 }
 
 function avisoRapido(texto) {
+  document.querySelectorAll('.aviso-rapido').forEach((el) => el.remove());
   const el = document.createElement('div');
   el.className = 'aviso-rapido';
   el.setAttribute('role', 'status');
   el.textContent = texto;
-  document.body.appendChild(el);
+  // Com a janela do pedido aberta, o aviso vai dentro dela para não ficar por trás.
+  ($('#janela-pedido').open ? $('#janela-pedido') : document.body).appendChild(el);
   setTimeout(() => el.remove(), 2600);
 }
 
