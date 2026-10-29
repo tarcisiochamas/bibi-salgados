@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gestão · Bibi Salgados</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#B3261E">
+<link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/img/icone-180.png">
+<link rel="manifest" href="gestao.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/gestao.css">
+</head>
+<body class="gestao">
+
+<div class="tela-cheia" id="tela-carregando">Abrindo a gestão…</div>
+
+<div class="login" id="tela-login" hidden>
+  <div class="login-cartao">
+    <div class="login-letreiro">
+      <span class="g-marca" id="login-marca">Bibi Salgados</span>
+      <span class="g-sub">Gestão</span>
+    </div>
+    <form class="login-form" id="form-login" novalidate>
+      <label class="campo"><span>E-mail</span>
+        <input type="email" id="login-email" name="email" autocomplete="username" required>
+      </label>
+      <label class="campo"><span>Senha</span>
+        <input type="password" id="login-senha" name="senha" autocomplete="current-password" required>
+      </label>
+      <p class="erro-campo" id="login-erro" role="alert" hidden></p>
+      <button class="btn btn-largo" type="submit" id="login-entrar">Entrar</button>
+      <button class="link" type="button" id="login-esqueci">Esqueci minha senha</button>
+    </form>
+    <a href="index.html" class="link">Ver a página de vendas</a>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header class="g-topo">
+    <a class="g-marca" href="index.html" id="g-marca" title="Abrir a página de vendas">Bibi Salgados</a>
+    <span class="g-sub">Gestão</span>
+    <span class="g-sinc" id="g-sinc"></span>
+    <a class="btn-icone so-estreito" href="#ajustes" data-ir="ajustes" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+    </a>
+  </header>
+  <div class="g-corpo">
+    <nav class="g-nav" id="g-nav" aria-label="Seções"></nav>
+    <main class="g-conteudo" id="g-conteudo"></main>
+  </div>
+</div>
+
+<dialog class="janela" id="janela" aria-labelledby="janela-titulo">
+  <form id="form-janela" novalidate>
+    <div class="janela-topo">
+      <h2 id="janela-titulo"></h2>
+      <button type="button" class="btn-icone" data-j="fechar" aria-label="Fechar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="janela-corpo" id="janela-corpo"></div>
+    <div class="janela-rodape" id="janela-rodape"></div>
+  </form>
+</dialog>
+
+<script type="module" src="assets/js/gestao.js"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+# Bibi Salgados
+
+Site gratuito de um negócio de salgados feito em casa:
+
+- **Página de vendas** (`index.html`): cardápio, carrinho e pedido que já vai escrito para o WhatsApp.
+- **Gestão** (`gestao.html`): pedidos do dia, o que produzir, ingredientes da produção, cardápio com ficha técnica e custo de cada salgado, finanças do mês e ajustes do negócio.
+
+Tudo roda de graça: o site fica no **GitHub Pages** e os dados no **Firebase** (plano Spark, gratuito).
+
+## Como funciona
+
+| Parte | Onde fica | Quem vê |
+| --- | --- | --- |
+| Cardápio e dados do negócio | Firestore (`produtos`, `config`) | Todo mundo |
+| Pedidos | Firestore (`pedidos`) | O site cria; só o dono lê |
+| Ingredientes, fichas técnicas e finanças | Firestore (`ingredientes`, `fichas`, `lancamentos`) | Só o dono |
+
+Quem protege os dados são as regras em [`firestore.rules`](firestore.rules). A gestão pede login com e-mail e senha (Firebase Authentication).
+
+Sem Firebase configurado, o site roda em **modo local**: tudo fica guardado só no navegador, com dados de exemplo. Serve para testar.
+
+## Ligar o Firebase
+
+1. Em [console.firebase.google.com](https://console.firebase.google.com), crie um projeto.
+2. **Firestore Database**: crie o banco no modo de produção, local `southamerica-east1`.
+3. **Authentication**: ative *E-mail/senha*, adicione o usuário do dono e, em *Configurações → Domínios autorizados*, inclua o domínio do site (ex.: `seuusuario.github.io`).
+4. **Configurações do projeto → Seus apps → Web**: registre um app e copie o `firebaseConfig` para `assets/js/config.js`.
+5. **Firestore → Regras**: cole o conteúdo de `firestore.rules`, trocando `dono@exemplo.com` pelo e-mail do dono, e publique.
+6. Entre na gestão com o e-mail e a senha do dono, toque em **Usar cardápio de exemplo** e ajuste nomes, preços e o WhatsApp em **Ajustes**.
+
+## Testar no computador
+
+```bash
+python3 -m http.server 8000
+# abra http://localhost:8000 (vendas) e http://localhost:8000/gestao.html (gestão)
+```
+
+## Arquivos
+
+```
+index.html              página de vendas
+gestao.html             gestão
+gestao.webmanifest      permite instalar a gestão na tela inicial do celular
+firestore.rules         regras de segurança do banco
+assets/css/             estilos (base.css é comum às duas páginas)
+assets/js/config.js     configuração do Firebase
+assets/js/store.js      onde os dados ficam (nuvem ou navegador)
+assets/js/calculos.js   custo da ficha técnica, produção, resumo financeiro
+assets/js/dados-exemplo.js  cardápio, ingredientes e fichas de exemplo
+assets/js/loja.js       página de vendas
+assets/js/gestao.js     gestão
+```

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bibi Salgados</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Salgados feitos em casa: fritos na hora, para festas ou congelados. Faça seu pedido pelo WhatsApp.">
+<meta name="theme-color" content="#B3261E">
+<meta property="og:title" content="Bibi Salgados">
+<meta property="og:description" content="Salgados feitos em casa. Monte seu pedido e envie pelo WhatsApp.">
+<link rel="icon" href="assets/img/icone.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/img/icone-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Figtree:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/loja.css">
+</head>
+<body>
+
+<header class="letreiro">
+  <div class="envoltorio">
+    <p class="letreiro-local" id="letreiro-local">Feito em casa</p>
+    <h1 id="letreiro-nome">Bibi Salgados</h1>
+    <p class="letreiro-slogan" id="letreiro-slogan">Salgados feitos em casa: fritos na hora, para a sua festa ou congelados para fritar quando quiser.</p>
+    <ul class="letreiro-info" id="letreiro-info"></ul>
+  </div>
+</header>
+
+<div class="envoltorio">
+  <p class="pausado" id="pausado" hidden>No momento não estamos aceitando pedidos pelo site. Chame a gente no WhatsApp.</p>
+</div>
+
+<nav class="categorias" id="categorias" aria-label="Categorias do cardápio" hidden>
+  <div class="envoltorio categorias-lista" id="categorias-lista"></div>
+</nav>
+
+<main class="envoltorio">
+  <div class="cardapio" id="cardapio">
+    <p class="vazio-cardapio">Carregando o cardápio…</p>
+  </div>
+
+  <section class="como" aria-labelledby="como-titulo">
+    <h2 id="como-titulo">Como pedir</h2>
+    <ol>
+      <li><p>Escolha os salgados e as quantidades aqui no cardápio.</p></li>
+      <li><p>Toque em <strong>Enviar pedido pelo WhatsApp</strong>. A mensagem já vai pronta.</p></li>
+      <li><p>A gente confirma o pedido, o horário e o pagamento por lá.</p></li>
+    </ol>
+  </section>
+</main>
+
+<footer class="rodape">
+  <div class="envoltorio" id="rodape"></div>
+</footer>
+
+<div class="barra-pedido" id="barra-pedido" hidden></div>
+
+<dialog class="janela" id="janela-pedido" aria-labelledby="titulo-pedido">
+  <form id="form-pedido" novalidate>
+    <div class="janela-topo">
+      <h2 id="titulo-pedido">Seu pedido</h2>
+      <button type="button" class="btn-icone" data-acao="fechar" aria-label="Fechar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="janela-corpo" id="corpo-pedido"></div>
+    <div class="janela-rodape" id="rodape-pedido"></div>
+  </form>
+</dialog>
+
+<script type="module" src="assets/js/loja.js"></script>
+</body>
+</html>

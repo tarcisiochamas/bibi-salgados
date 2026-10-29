@@ -1,0 +1,16 @@
+{
+  "name": "Bibi Salgados · Gestão",
+  "short_name": "Bibi Gestão",
+  "description": "Pedidos, produção, custos e finanças da Bibi Salgados.",
+  "lang": "pt-BR",
+  "start_url": "gestao.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFFDF8",
+  "theme_color": "#B3261E",
+  "icons": [
+    { "src": "assets/img/icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/img/icone-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/img/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

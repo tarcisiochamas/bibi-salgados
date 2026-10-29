@@ -1,0 +1,268 @@
+/* Página de vendas: letreiro com toldo, cardápio com pontilhado até o preço. */
+
+.envoltorio {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+  padding-left: var(--gutter-esq);
+  padding-right: var(--gutter-dir);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--molho);
+}
+
+/* ---------- Letreiro ---------- */
+
+.letreiro {
+  position: relative;
+  background: var(--molho);
+  color: var(--molho-texto);
+  margin-bottom: 18px;
+}
+/* Toldo recortado, como o de uma lanchonete */
+.letreiro::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 14px;
+  background: radial-gradient(circle at 12px 0, var(--molho) 11.5px, transparent 12px) repeat-x;
+  background-size: 24px 14px;
+}
+.letreiro .envoltorio { display: grid; gap: 0.85rem; padding-block: 2.25rem 1.75rem; }
+.letreiro-local {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dourado);
+}
+.letreiro h1 {
+  font-family: var(--fonte-letreiro);
+  font-weight: 400;
+  font-size: clamp(2.75rem, 11vw, 4.75rem);
+  line-height: 0.95;
+  color: var(--dourado);
+  letter-spacing: 0.01em;
+  text-shadow: 0 3px 0 rgb(0 0 0 / 0.18);
+}
+.letreiro-slogan { max-width: 36rem; font-size: 1.075rem; }
+.letreiro-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  padding: 0;
+  margin: 0.25rem 0 0;
+  list-style: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.letreiro-info li { display: inline-flex; align-items: center; gap: 0.4rem; }
+.letreiro-info svg { width: 18px; height: 18px; color: var(--dourado); flex: none; }
+
+/* ---------- Aviso de pedidos pausados ---------- */
+
+.pausado {
+  margin-top: 1.5rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--raio);
+  background: var(--alerta-fundo);
+  color: var(--alerta);
+  font-weight: 600;
+}
+
+/* ---------- Categorias ---------- */
+
+.categorias {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  margin-top: 1.25rem;
+  background: var(--papel);
+  border-bottom: 1px solid var(--linha);
+}
+.categorias-lista {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-block: 0.75rem;
+  scrollbar-width: none;
+}
+.categorias-lista::-webkit-scrollbar { display: none; }
+.categorias a {
+  flex: none;
+  padding: 0.45rem 0.95rem;
+  border: 1.5px solid var(--linha);
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.925rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.categorias a:hover, .categorias a[aria-current="true"] { border-color: var(--tinta); background: var(--superficie-2); }
+
+/* ---------- Cardápio ---------- */
+
+.cardapio { display: grid; gap: 2.75rem; padding-block: 1.75rem 2rem; }
+.secao { display: grid; gap: 0.25rem; scroll-margin-top: calc(76px + env(safe-area-inset-top, 0px)); }
+.secao > h2 {
+  font-family: var(--fonte-letreiro);
+  font-weight: 400;
+  font-size: 1.75rem;
+  color: var(--molho);
+}
+:root[data-theme="dark"] .secao > h2 { color: var(--dourado); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .secao > h2 { color: var(--dourado); } }
+.secao-dica { color: var(--tinta-suave); font-size: 0.95rem; margin-bottom: 0.5rem; }
+
+.item {
+  display: grid;
+  gap: 0.35rem;
+  padding-block: 1rem;
+  border-bottom: 1px dashed var(--linha);
+}
+.item:last-child { border-bottom: 0; }
+.item-linha { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.item-linha h3 { font-size: 1.075rem; font-weight: 700; min-width: 0; }
+.item-pontilhado {
+  flex: 1 1 1.5rem;
+  min-width: 1.5rem;
+  border-bottom: 2.5px dotted var(--tinta-suave);
+  opacity: 0.45;
+  transform: translateY(-0.3em);
+}
+.item-preco { font-weight: 800; font-size: 1.075rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.item-desc { color: var(--tinta-suave); font-size: 0.95rem; max-width: 34rem; }
+.item-acoes { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.35rem; }
+.item-unidade { font-size: 0.875rem; color: var(--tinta-suave); font-weight: 600; }
+.item.no-pedido .item-linha h3::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--molho);
+  vertical-align: 0.12em;
+}
+
+.vazio-cardapio { padding: 2rem 0; color: var(--tinta-suave); }
+
+/* ---------- Como pedir ---------- */
+
+.como {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border-radius: var(--raio);
+  background: var(--superficie);
+}
+.como h2 { font-family: var(--fonte-letreiro); font-weight: 400; font-size: 1.35rem; }
+.como ol { display: grid; gap: 0.85rem; margin: 0; padding: 0; list-style: none; counter-reset: passo; }
+.como li { display: grid; grid-template-columns: 2rem 1fr; gap: 0.75rem; align-items: start; counter-increment: passo; }
+.como li::before {
+  content: counter(passo);
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--molho);
+  color: var(--molho-texto);
+  font-family: var(--fonte-letreiro);
+}
+
+/* ---------- Rodapé ---------- */
+
+.rodape {
+  padding-block: 2rem calc(7rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--linha);
+  color: var(--tinta-suave);
+  font-size: 0.95rem;
+}
+.rodape .envoltorio { display: grid; gap: 0.6rem; }
+.rodape strong { color: var(--tinta); font-family: var(--fonte-letreiro); font-weight: 400; font-size: 1.2rem; }
+.rodape a { font-weight: 600; }
+.rodape-vendedor { margin-top: 0.75rem; font-size: 0.85rem; }
+
+/* ---------- Barra do pedido ---------- */
+
+.barra-pedido {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  padding: 0.75rem var(--gutter-dir) calc(0.75rem + env(safe-area-inset-bottom, 0px)) var(--gutter-esq);
+  background: linear-gradient(to top, var(--papel) 70%, transparent);
+}
+.barra-pedido .btn {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 728px;
+  margin-inline: auto;
+  min-height: 56px;
+  padding-inline: 1.35rem;
+  font-size: 1.05rem;
+  box-shadow: var(--sombra);
+}
+.barra-contagem {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  margin-right: 0.6rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--dourado);
+  color: #2B1D14;
+  font-size: 0.9rem;
+}
+
+/* ---------- Finalizar pedido ---------- */
+
+.resumo-itens { display: grid; gap: 0.75rem; }
+.resumo-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 1rem;
+  align-items: center;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px dashed var(--linha);
+}
+.resumo-item .nome { font-weight: 700; min-width: 0; }
+.resumo-item .preco { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.resumo-item .unit { color: var(--tinta-suave); font-size: 0.875rem; }
+
+.bloco { display: grid; gap: 0.85rem; }
+.bloco > h3 { font-size: 1rem; }
+.duas-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.85rem; }
+
+.totais { display: grid; gap: 0.35rem; padding: 1rem; border-radius: var(--raio); background: var(--superficie); }
+.totais div { display: flex; justify-content: space-between; gap: 1rem; font-variant-numeric: tabular-nums; }
+.totais .total { font-size: 1.2rem; font-weight: 800; padding-top: 0.35rem; border-top: 1px solid var(--linha); }
+.alerta-minimo { color: var(--alerta); font-weight: 600; font-size: 0.925rem; }
+
+.enviado { display: grid; gap: 1rem; justify-items: start; }
+.enviado h3 { font-family: var(--fonte-letreiro); font-weight: 400; font-size: 1.6rem; color: var(--molho); }
+.mensagem-previa {
+  width: 100%;
+  margin: 0;
+  padding: 1rem;
+  border-radius: var(--raio);
+  background: var(--superficie);
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.925rem;
+  overflow-wrap: anywhere;
+}
+.acoes-linha { display: flex; flex-wrap: wrap; gap: 0.75rem; }

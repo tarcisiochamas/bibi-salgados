@@ -1,0 +1,76 @@
+rules_version = '2';
+
+// Regras de segurança do banco de dados (Cloud Firestore).
+//
+// - Qualquer pessoa pode ler o cardápio e os dados do negócio (é o que aparece no site).
+// - Qualquer pessoa pode CRIAR um pedido pelo site, desde que ele venha no formato certo.
+// - Só o dono, logado com o e-mail abaixo, lê e altera pedidos, custos e finanças.
+//
+// Para trocar o dono, mude o e-mail na lista (pode ter mais de um, separados por vírgula).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function ehDono() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() in ['dono@exemplo.com'];
+    }
+
+    function pedidoDoSiteValido(pedidoId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['id', 'codigo', 'criadoEm', 'origem', 'status', 'cliente', 'entrega',
+                               'dataEntrega', 'hora', 'itens', 'subtotal', 'taxaEntrega', 'desconto',
+                               'total', 'pagamento', 'obs'])
+        && d.id == pedidoId
+        && d.origem == 'Site'
+        && d.status == 'novo'
+        && d.codigo is string && d.codigo.size() <= 10
+        && d.criadoEm is string && d.criadoEm.size() <= 40
+        && d.cliente is map && d.cliente.keys().hasOnly(['nome', 'telefone'])
+        && d.cliente.nome is string && d.cliente.nome.size() > 0 && d.cliente.nome.size() <= 80
+        && d.cliente.telefone is string && d.cliente.telefone.size() <= 20
+        && d.entrega is map && d.entrega.keys().hasOnly(['tipo', 'endereco'])
+        && d.entrega.tipo in ['entrega', 'retirada']
+        && d.entrega.endereco is string && d.entrega.endereco.size() <= 300
+        && d.dataEntrega is string && d.dataEntrega.size() == 10
+        && d.hora is string && d.hora.size() <= 5
+        && d.itens is list && d.itens.size() > 0 && d.itens.size() <= 40
+        && d.subtotal is number && d.taxaEntrega is number && d.desconto == 0
+        && d.total is number && d.total >= 0 && d.total < 100000
+        && d.pagamento is map && d.pagamento.keys().hasOnly(['forma', 'pago', 'pagoEm'])
+        && d.pagamento.pago == false
+        && d.pagamento.forma is string && d.pagamento.forma.size() <= 40
+        && d.obs is string && d.obs.size() <= 500;
+    }
+
+    // Dados do negócio que aparecem no site (nome, WhatsApp, taxa de entrega...)
+    match /config/{documento} {
+      allow read: if true;
+      allow write: if ehDono();
+    }
+
+    // Cardápio
+    match /produtos/{produtoId} {
+      allow read: if true;
+      allow write: if ehDono();
+    }
+
+    // Pedidos: o site cria, só o dono vê e mexe
+    match /pedidos/{pedidoId} {
+      allow create: if ehDono() || pedidoDoSiteValido(pedidoId);
+      allow read, update, delete: if ehDono();
+    }
+
+    // Custos e finanças: só o dono
+    match /ingredientes/{id} {
+      allow read, write: if ehDono();
+    }
+    match /fichas/{id} {
+      allow read, write: if ehDono();
+    }
+    match /lancamentos/{id} {
+      allow read, write: if ehDono();
+    }
+  }
+}
