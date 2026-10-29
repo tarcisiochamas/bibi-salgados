@@ -18,6 +18,10 @@ export const CONFIG_PADRAO = {
   aceitandoPedidos: true,
   formasPagamento: ['Pix', 'Dinheiro', 'Cartão na entrega'],
   chavePix: '',
+  // Cobrar antes da entrega: desligado até o dono ligar em Ajustes.
+  cobrarAntes: false,
+  cobrarAntesPix: true,
+  cobrarAntesCartao: true,
   cmvAlvo: 0.35,
 };
 
@@ -151,7 +155,7 @@ export function dadosExemplo(hoje = hojeISO()) {
       cliente: { nome: 'Escritório Contábil Nogueira', telefone: '' },
       entrega: { tipo: 'entrega', endereco: 'Av. Alberto Andaló, 3000, sala 12 - Centro' },
       dataEntrega: dia(1), hora: '10:00', itens: [item('mini-coxinha', 1), item('mini-bolinha', 1)],
-      pagamento: aPagar('Pix'), obs: 'Pode mandar guardanapos?',
+      pagamento: aPagar('Pix antecipado'), obs: 'Pode mandar guardanapos?',
     }),
     pedido({
       id: 'ex-4', codigo: 'R5TN', criadoEm: criado(-3), origem: 'WhatsApp', status: 'confirmado',

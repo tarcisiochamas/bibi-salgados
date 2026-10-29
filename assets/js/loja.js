@@ -5,7 +5,10 @@ import {
   brl, esc, num, linkWhats, telefoneBonito, telefoneWhats, codigoPedido, isoLocal,
   dataComDia, lerLocal, gravarLocal, copiarTexto,
 } from './util.js';
-import { textoQtd, totaisPedido } from './calculos.js';
+import {
+  textoQtd, totaisPedido, formasAntecipadas, PIX_ANTECIPADO, CARTAO_PELO_LINK,
+} from './calculos.js';
+import { lerChavePix, codigoPix, desenharQrPix } from './pix.js';
 import { icone } from './icones.js';
 
 const CHAVE_CARRINHO = 'bibi-salgados:carrinho';
@@ -279,10 +282,18 @@ function montarMensagem(pedido) {
   l.push(`*Nome:* ${pedido.cliente.nome || '(não informado)'}`);
   l.push(pedido.entrega.tipo === 'entrega' ? `*Entrega em:* ${pedido.entrega.endereco}` : '*Vou retirar*');
   if (pedido.dataEntrega) l.push(`*Para:* ${dataComDia(pedido.dataEntrega)}${pedido.hora ? ` às ${pedido.hora}` : ''}`);
-  if (pedido.pagamento.forma) l.push(`*Pagamento:* ${pedido.pagamento.forma}`);
+  if (pedido.pagamento.forma) l.push(`*Pagamento:* ${textoPagamento(pedido.pagamento.forma)}`);
   if (pedido.obs) l.push(`*Obs.:* ${pedido.obs}`);
   l.push('', `Pedido #${pedido.codigo} (feito pelo site)`);
   return l.join('\n');
+}
+
+// Como a forma de pagamento aparece no WhatsApp: nas formas antecipadas, o
+// cliente já diz o que vai fazer.
+function textoPagamento(forma) {
+  if (forma === PIX_ANTECIPADO) return 'Pix antes da entrega (mando o comprovante por aqui)';
+  if (forma === CARTAO_PELO_LINK) return 'Cartão de crédito antes da entrega (pode me mandar o link de pagamento)';
+  return forma;
 }
 
 function validar(form, pedido) {
@@ -302,13 +313,16 @@ function desenharFinalizar() {
   const janela = $('#janela-pedido');
   delete janela.dataset.enviado;
   const salvo = lerLocal(CHAVE_CLIENTE, {}) || {};
+  const antecipadas = formasAntecipadas(config);
+  const formas = antecipadas.length ? antecipadas
+    : (config.formasPagamento?.length ? config.formasPagamento : ['Pix', 'Dinheiro']);
   const anterior = $('#form-pedido').elements.nome ? lerFormulario() : null;
   const form = anterior || {
     nome: salvo.nome || '', telefone: salvo.telefone || '', tipo: salvo.tipo || 'retirada',
-    endereco: salvo.endereco || '', data: dataMinima(), hora: '', forma: (config.formasPagamento || [])[0] || '', obs: '',
+    endereco: salvo.endereco || '', data: dataMinima(), hora: '', forma: formas[0], obs: '',
   };
+  if (!formas.includes(form.forma)) form.forma = formas[0];
   const itens = itensDoCarrinho();
-  const formas = config.formasPagamento?.length ? config.formasPagamento : ['Pix', 'Dinheiro'];
 
   $('#titulo-pedido').textContent = 'Seu pedido';
   $('#corpo-pedido').innerHTML = `
@@ -358,10 +372,11 @@ function desenharFinalizar() {
     </div>
 
     <fieldset class="bloco" style="border:0;padding:0;margin:0">
-      <legend class="rotulo" style="margin-bottom:.6rem">Pagamento</legend>
+      <legend class="rotulo" style="margin-bottom:.6rem">${antecipadas.length ? 'Pagamento antes da entrega' : 'Pagamento'}</legend>
       <div class="opcoes">
-        ${formas.map((f) => `<label class="opcao"><input type="radio" name="forma" value="${esc(f)}" ${form.forma === f ? 'checked' : ''}> ${esc(f)}</label>`).join('')}
+        ${formas.map((f) => `<label class="opcao"><input type="radio" name="forma" value="${esc(f)}" ${form.forma === f ? 'checked' : ''}> ${esc(ROTULO_FORMA[f] || f)}</label>`).join('')}
       </div>
+      ${antecipadas.length ? `<small class="suave dica-pagamento" id="dica-pagamento">${esc(DICA_FORMA[form.forma])}</small>` : ''}
     </fieldset>
 
     <label class="campo"><span>Observações (opcional)</span>
@@ -375,6 +390,12 @@ function desenharFinalizar() {
     : `<a class="btn btn-whats btn-largo" id="enviar-whats" href="#" target="_blank" rel="noopener">${icone('conversa')} Enviar pedido pelo WhatsApp</a>`;
   atualizarFinalizar();
 }
+
+const ROTULO_FORMA = { [PIX_ANTECIPADO]: 'Pix', [CARTAO_PELO_LINK]: 'Cartão de crédito' };
+const DICA_FORMA = {
+  [PIX_ANTECIPADO]: 'Depois de enviar o pedido, aparece o código Pix com o valor certo. O pedido é confirmado quando o pagamento cai.',
+  [CARTAO_PELO_LINK]: 'A gente manda o link para pagar no cartão pelo WhatsApp. O pedido é confirmado depois do pagamento.',
+};
 
 function htmlResumo(itens) {
   if (!itens.length) return '<p class="suave">Seu pedido está vazio.</p>';
@@ -454,8 +475,18 @@ function mostrarEnviado(pedido, mensagem) {
   janela.dataset.enviado = '1';
   $('#titulo-pedido').textContent = `Pedido #${pedido.codigo}`;
   const temWhats = Boolean(config.whatsapp);
-  const pix = pedido.pagamento.forma === 'Pix' && config.chavePix
-    ? `<p>Chave Pix: <strong>${esc(config.chavePix)}</strong>. Pague depois que confirmarmos o pedido.</p>` : '';
+  const forma = pedido.pagamento.forma;
+  const chave = lerChavePix(config.chavePix);
+  const pix = forma === PIX_ANTECIPADO && chave
+    ? codigoPix({ chave: chave.chave, nome: config.nome, cidade: config.cidade, valor: pedido.total, identificador: pedido.codigo })
+    : '';
+  let pagamento = '';
+  if (pix) pagamento = htmlPagarPix(pedido, pix);
+  else if (forma === CARTAO_PELO_LINK) {
+    pagamento = '<p class="aviso-pagamento">A gente te manda o link para pagar no cartão pelo WhatsApp. O pedido é confirmado depois do pagamento.</p>';
+  } else if (forma === 'Pix' && config.chavePix) {
+    pagamento = `<p>Chave Pix: <strong>${esc(config.chavePix)}</strong>. Pague depois que confirmarmos o pedido.</p>`;
+  }
   $('#corpo-pedido').innerHTML = `
     <div class="enviado">
       <h3>Quase lá!</h3>
@@ -463,7 +494,7 @@ function mostrarEnviado(pedido, mensagem) {
         ? `<p>Abrimos o WhatsApp com o seu pedido escrito. É só tocar em <strong>enviar</strong> por lá. A gente responde para confirmar o horário e o pagamento.</p>
            <p class="suave">O WhatsApp não abriu? Use o botão abaixo ou copie a mensagem e mande para ${esc(telefoneBonito(config.whatsapp))}.</p>`
         : '<p>Este site ainda não tem um número de WhatsApp configurado. Veja abaixo a mensagem que seria enviada.</p>'}
-      ${pix}
+      ${pagamento}
       <pre class="mensagem-previa" id="mensagem-previa">${esc(mensagem)}</pre>
       <div class="acoes-linha">
         ${temWhats ? `<a class="btn btn-whats" href="${esc(linkWhats(config.whatsapp, mensagem))}" target="_blank" rel="noopener">${icone('conversa')} Abrir WhatsApp</a>` : ''}
@@ -473,6 +504,19 @@ function mostrarEnviado(pedido, mensagem) {
   $('#rodape-pedido').innerHTML = '<button type="button" class="btn btn-contorno btn-largo" data-acao="fechar">Voltar ao cardápio</button>';
   $('#corpo-pedido').scrollTop = 0;
   janela.scrollTop = 0;
+  if (pix) desenharQrPix($('#pix-qr'), pix);
+}
+
+function htmlPagarPix(pedido, codigo) {
+  return `
+    <section class="pix-pagar" aria-labelledby="pix-titulo">
+      <h4 id="pix-titulo">Pague ${brl(pedido.total)} com Pix</h4>
+      <p>No app do seu banco, escolha <strong>Pix copia e cola</strong> e cole o código abaixo. O valor já vem preenchido.</p>
+      <div class="pix-qr" id="pix-qr"></div>
+      <textarea class="pix-codigo" id="pix-codigo" rows="4" readonly aria-label="Código Pix copia e cola">${esc(codigo)}</textarea>
+      <button type="button" class="btn" data-acao="copiar-pix">${icone('copiar')} Copiar código Pix</button>
+      <p class="suave">Depois de pagar, mande o comprovante no WhatsApp. O pedido é confirmado quando o pagamento cai.</p>
+    </section>`;
 }
 
 function abrirFinalizar() {
@@ -520,6 +564,13 @@ document.addEventListener('click', async (e) => {
     abrirFinalizar();
   } else if (acao === 'fechar') {
     $('#janela-pedido').close();
+  } else if (acao === 'copiar-pix') {
+    const campo = $('#pix-codigo');
+    if (await copiarTexto(campo.value)) avisoRapido('Código Pix copiado');
+    else {
+      campo.select();
+      avisoRapido('Selecionamos o código: é só copiar');
+    }
   } else if (acao === 'copiar') {
     const texto = $('#mensagem-previa')?.textContent || '';
     if (await copiarTexto(texto)) avisoRapido('Mensagem copiada');
@@ -540,6 +591,9 @@ document.addEventListener('input', (e) => {
     const entrega = e.target.value === 'entrega';
     $('#campo-endereco').hidden = !entrega;
     $('#nota-retirada').hidden = entrega;
+  }
+  if (e.target.name === 'forma' && $('#dica-pagamento')) {
+    $('#dica-pagamento').textContent = DICA_FORMA[e.target.value] || '';
   }
   if (e.target.classList.contains('campo-invalido')) {
     e.target.classList.remove('campo-invalido');

@@ -186,6 +186,8 @@ body.gestao::before {
   text-align: left;
 }
 .alerta-novos { cursor: pointer; width: 100%; }
+.alerta-pagamento { background: var(--alerta-fundo); color: var(--alerta); }
+.aviso-ajuste { color: var(--alerta); font-weight: 600; font-size: 0.925rem; }
 .alerta-novos svg { width: 20px; height: 20px; }
 
 /* ---------- Primeiros passos ---------- */

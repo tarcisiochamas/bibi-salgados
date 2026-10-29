@@ -19,6 +19,15 @@ Quem protege os dados são as regras em [`firestore.rules`](firestore.rules). A 
 
 Sem Firebase configurado, o site roda em **modo local**: tudo fica guardado só no navegador, com dados de exemplo. Serve para testar.
 
+## Cobrar antes da entrega
+
+Em **Ajustes → Cobrar antes da entrega**, o dono liga e desliga quando quiser. Ligado, o cliente escolhe entre:
+
+- **Pix**: depois de enviar o pedido, o site mostra o Pix copia e cola (e o QR Code, no computador) já com o valor e com o código do pedido como identificador. É gerado no próprio site (`assets/js/pix.js`), sem empresa de pagamento: o dinheiro cai direto na conta da chave Pix.
+- **Cartão de crédito**: o dono manda um link de pagamento pelo WhatsApp, criado no app da maquininha ou do banco.
+
+Esses pedidos aparecem na gestão como **Aguardando pagamento** até serem marcados como pagos.
+
 ## Ligar o Firebase
 
 1. Em [console.firebase.google.com](https://console.firebase.google.com), crie um projeto.
@@ -46,6 +55,8 @@ assets/css/             estilos (base.css é comum às duas páginas)
 assets/js/config.js     configuração do Firebase
 assets/js/store.js      onde os dados ficam (nuvem ou navegador)
 assets/js/calculos.js   custo da ficha técnica, produção, resumo financeiro
+assets/js/pix.js        Pix copia e cola com valor (BR Code) e QR Code
+assets/js/vendor/       qrcode-generator (MIT), usado para desenhar o QR Code
 assets/js/dados-exemplo.js  cardápio, ingredientes e fichas de exemplo
 assets/js/loja.js       página de vendas
 assets/js/gestao.js     gestão
