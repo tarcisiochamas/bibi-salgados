@@ -859,7 +859,7 @@ function telaAjustes() {
           <legend class="rotulo" style="margin-bottom:.6rem">Como o cliente pode pagar</legend>
           <label class="check"><input type="checkbox" name="cobrarAntesPix" ${c.cobrarAntesPix !== false ? 'checked' : ''}> Pix: o site mostra o código copia e cola com o valor do pedido</label>
           <label class="check"><input type="checkbox" name="cobrarAntesCartao" ${c.cobrarAntesCartao !== false ? 'checked' : ''}> Cartão de crédito: você manda um link de pagamento pelo WhatsApp</label>
-          <small class="suave">O link de cartão é criado no app da sua maquininha ou do banco (InfinitePay, Mercado Pago, PagBank e outros), e cada um cobra a própria taxa.</small>
+          <small class="suave">O link de cartão é criado no app da sua maquininha ou do banco (Stone, InfinitePay, Mercado Pago, PagBank e outros), e cada um cobra a própria taxa.</small>
           <p class="aviso-ajuste" id="aj-cobrar-aviso" ${avisoCobrarAntes(c) ? '' : 'hidden'}>${esc(avisoCobrarAntes(c))}</p>
         </fieldset>
       </section>
