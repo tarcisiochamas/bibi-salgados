@@ -161,6 +161,20 @@ body::before {
   vertical-align: 0.12em;
 }
 
+/* Salgado de estoque que acabou */
+.item.esgotado .item-linha, .item.esgotado .item-desc { opacity: 0.5; }
+.item-esgotado {
+  padding: 0.3rem 0.8rem;
+  border: 1.5px solid var(--linha);
+  border-radius: 999px;
+  color: var(--tinta-suave);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.qtd button[aria-disabled="true"] { opacity: 0.35; cursor: not-allowed; }
+
 .vazio-cardapio { padding: 2rem 0; color: var(--tinta-suave); }
 
 /* ---------- Como pedir ---------- */

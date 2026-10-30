@@ -36,17 +36,20 @@ export function custoPorUnidadeBase(ing) {
   return ing && ing.qtdEmbalagem > 0 ? (Number(ing.precoEmbalagem) || 0) / ing.qtdEmbalagem : 0;
 }
 
-// Custo da receita inteira e de cada salgado que ela rende.
+// Custo da receita inteira e de cada salgado que ela rende. As embalagens
+// entram sem o acréscimo de gás, óleo e perdas.
 export function calcularFicha(ficha, ingredientesPorId) {
   const linhas = (ficha?.itens || []).map((it) => {
     const ing = ingredientesPorId[it.ingredienteId];
     return { ...it, ingrediente: ing, custo: custoPorUnidadeBase(ing) * (Number(it.qtd) || 0) };
   });
   const custoIngredientes = linhas.reduce((s, l) => s + l.custo, 0);
-  const custoReceita = custoIngredientes * (1 + (Number(ficha?.outrosPct) || 0) / 100);
+  const custoEmbalagens = linhas.filter((l) => l.ingrediente?.embalagem).reduce((s, l) => s + l.custo, 0);
+  const outros = 1 + (Number(ficha?.outrosPct) || 0) / 100;
+  const custoReceita = (custoIngredientes - custoEmbalagens) * outros + custoEmbalagens;
   const rendimento = Number(ficha?.rendimento) || 0;
   const porSalgado = rendimento > 0 ? custoReceita / rendimento : 0;
-  return { linhas, custoIngredientes, custoReceita, porSalgado };
+  return { linhas, custoIngredientes, custoEmbalagens, custoReceita, porSalgado };
 }
 
 // Custo de uma unidade de venda do produto (1 salgado, 1 cento, 1 pacote...).

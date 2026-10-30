@@ -59,6 +59,16 @@ const ingredientes = [
   id: `ing-${id}`, nome, unidade, qtdEmbalagem, precoEmbalagem,
 }));
 
+// Embalagens entram na ficha técnica como os ingredientes, na quantidade que a
+// receita inteira usa. Assim elas também saem do estoque quando o pedido fica pronto.
+const embalagens = [
+  ['caixa-cento', 'Caixa para cento', 25, 62.5],
+  ['saco-congelado', 'Saco para congelados com etiqueta', 100, 119.9],
+  ['saquinho', 'Saquinho de papel', 100, 29.9],
+].map(([id, nome, qtdEmbalagem, precoEmbalagem]) => ({
+  id: `emb-${id}`, nome, unidade: 'un', qtdEmbalagem, precoEmbalagem, embalagem: true,
+}));
+
 const produtos = [
   ['coxinha', 'Coxinha de frango com requeijão', 'Salgados fritos',
     'Massa macia e recheio de frango desfiado temperado com requeijão cremoso.', 7, 'unidade', 1, 1],
@@ -92,17 +102,17 @@ const massaCoxinha = { 'ing-farinha': 500, 'ing-leite': 500, 'ing-margarina': 50
 const empanar = (rosca) => ({ 'ing-ovos': 2, 'ing-rosca': rosca });
 
 const fichas = [
-  ['coxinha', 22, 0.3, { ...massaCoxinha, 'ing-frango': 700, 'ing-requeijao': 250, 'ing-cebola': 150, ...empanar(400) }],
-  ['mini-coxinha', 100, 2.5, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300) }],
-  ['mini-coxinha-congelada', 100, 1.2, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300) }],
-  ['kibe', 20, 0.3, { 'ing-trigo-kibe': 400, 'ing-carne': 600, 'ing-mucarela': 300, 'ing-cebola': 150, 'ing-hortela': 1 }],
-  ['mini-kibe', 100, 2.5, { 'ing-trigo-kibe': 400, 'ing-carne': 500, 'ing-cebola': 150, 'ing-hortela': 1 }],
-  ['bolinha', 25, 0.3, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 600, ...empanar(400) }],
-  ['mini-bolinha', 100, 2.5, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 500, ...empanar(300) }],
-].map(([id, rendimento, embalagem, itens]) => ({
+  ['coxinha', 22, { ...massaCoxinha, 'ing-frango': 700, 'ing-requeijao': 250, 'ing-cebola': 150, ...empanar(400), 'emb-saquinho': 22 }],
+  ['mini-coxinha', 100, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300), 'emb-caixa-cento': 1 }],
+  ['mini-coxinha-congelada', 100, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300), 'emb-saco-congelado': 2 }],
+  ['kibe', 20, { 'ing-trigo-kibe': 400, 'ing-carne': 600, 'ing-mucarela': 300, 'ing-cebola': 150, 'ing-hortela': 1, 'emb-saquinho': 20 }],
+  ['mini-kibe', 100, { 'ing-trigo-kibe': 400, 'ing-carne': 500, 'ing-cebola': 150, 'ing-hortela': 1, 'emb-caixa-cento': 1 }],
+  ['bolinha', 25, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 600, ...empanar(400), 'emb-saquinho': 25 }],
+  ['mini-bolinha', 100, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 500, ...empanar(300), 'emb-caixa-cento': 1 }],
+].map(([id, rendimento, itens]) => ({
   id,
   rendimento,
-  embalagem,
+  embalagem: 0,
   outrosPct: 20,
   itens: Object.entries(itens).map(([ingredienteId, qtd]) => ({ ingredienteId, qtd })),
 }));
@@ -112,7 +122,7 @@ export function cardapioInicial() {
   return {
     config: { ...CONFIG_PADRAO },
     produtos: structuredClone(produtos),
-    ingredientes: structuredClone(ingredientes),
+    ingredientes: structuredClone([...ingredientes, ...embalagens]),
     fichas: structuredClone(fichas),
   };
 }
@@ -167,6 +177,12 @@ export function dadosExemplo(hoje = hojeISO()) {
       pagamento: aPagar('Pix'),
     }),
     pedido({
+      id: 'ex-9', codigo: 'P6VY', criadoEm: criado(0), origem: 'Site', status: 'novo',
+      cliente: { nome: 'Patrícia Gomes', telefone: '' }, entrega: retirada,
+      dataEntrega: dia(2), hora: '10:30', itens: [item('mini-coxinha-congelada', 2)],
+      pagamento: aPagar('Pix'),
+    }),
+    pedido({
       id: 'ex-5', codigo: 'J4WB', criadoEm: criado(-2), origem: 'WhatsApp', status: 'entregue',
       cliente: { nome: 'Juliana Castro', telefone: '' },
       entrega: { tipo: 'entrega', endereco: 'Rua Siqueira Campos, 455 - Boa Vista' },
@@ -204,5 +220,22 @@ export function dadosExemplo(hoje = hojeISO()) {
     lanc(6, -1, 'saida', RETIRADA, 'Retirada da semana', 300),
   ];
 
-  return { ...cardapioInicial(), pedidos, lancamentos };
+  // Estoque de exemplo: congelados prontos no freezer e quase tudo já contado
+  // (quantidade, mínimo). Presunto e salsicha ficam sem contagem.
+  const base = cardapioInicial();
+  const prontos = { 'mini-coxinha-congelada': [6, 4], 'mini-kibe-congelado': [0, 3] };
+  for (const p of base.produtos) {
+    if (prontos[p.id]) Object.assign(p, { controlarEstoque: true, estoque: prontos[p.id][0], estoqueMinimo: prontos[p.id][1] });
+  }
+  const contagem = {
+    'ing-farinha': [3000, 2000], 'ing-leite': [2000, 1000], 'ing-margarina': [500, 500], 'ing-caldo': [12, 6],
+    'ing-frango': [1500, 1000], 'ing-requeijao': [1500, 1500], 'ing-cebola': [2000, 500], 'ing-ovos': [18, 12],
+    'ing-rosca': [1000, 500], 'ing-trigo-kibe': [500, 500], 'ing-carne': [1000, 1000], 'ing-hortela': [1, 1],
+    'ing-mucarela': [1000, 1000], 'emb-caixa-cento': [8, 10], 'emb-saco-congelado': [30, 20], 'emb-saquinho': [60, 50],
+  };
+  for (const ing of base.ingredientes) {
+    if (contagem[ing.id]) Object.assign(ing, { estoque: contagem[ing.id][0], estoqueMinimo: contagem[ing.id][1] });
+  }
+
+  return { ...base, pedidos, lancamentos };
 }
