@@ -11,7 +11,10 @@ import {
   STATUS, STATUS_ABERTOS, STATUS_A_PRODUZIR, PROXIMO_STATUS, porId, custoPorUnidadeBase, calcularFicha,
   custoDoProduto, analisarPreco, totaisPedido, resumoItens, producaoDasDatas, ingredientesDaProducao,
   quantidadeLegivel, resumoDoMes, aReceber, clientesDosPedidos, dataDoRecebimento,
+  formasAntecipadas, aguardandoPagamento, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
 } from './calculos.js';
+import { lerChavePix, codigoPix } from './pix.js';
+import { lerInfiniteTag, criarCobranca, explicarErro } from './infinitepay.js';
 import { icone } from './icones.js';
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -322,8 +325,11 @@ function linhaPedido(p, { acao = 'status', mostrarData = false } = {}) {
   } else if (acao === 'receber' && !p.pagamento?.pago) {
     botao = `<button type="button" class="btn btn-pequeno btn-contorno" data-acao="recebi" data-id="${esc(p.id)}">${icone('certo')} Recebi</button>`;
   }
-  const pago = p.status === 'cancelado' ? ''
-    : p.pagamento?.pago ? '<span class="pill pago sem-ponto">Pago</span>' : '<span class="pill a-pagar sem-ponto">A pagar</span>';
+  let pago = '';
+  if (aguardandoPagamento(p)) pago = '<span class="pill aguardando sem-ponto">Aguardando pagamento</span>';
+  else if (p.status !== 'cancelado') {
+    pago = p.pagamento?.pago ? '<span class="pill pago sem-ponto">Pago</span>' : '<span class="pill a-pagar sem-ponto">A pagar</span>';
+  }
   return `
     <div class="pedido-linha${p.status === 'cancelado' ? ' cancelado' : ''}">
       <button type="button" class="pl-abrir" data-abrir-pedido="${esc(p.id)}">
@@ -361,6 +367,10 @@ function htmlPrimeirosPassos() {
     passos.push(['Coloque o número de WhatsApp que vai receber os pedidos do site.',
       '<button class="btn btn-pequeno btn-contorno" data-ir="ajustes">Abrir ajustes</button>']);
   }
+  if (config().cobrarAntes && config().cobrarAntesPix && !lerChavePix(config().chavePix)) {
+    passos.push(['Para cobrar no Pix antes da entrega, coloque uma chave Pix válida em Ajustes.',
+      '<button class="btn btn-pequeno btn-contorno" data-ir="ajustes">Abrir ajustes</button>']);
+  }
   const exemplos = d.pedidos.filter((p) => p.exemplo).length + d.lancamentos.filter((l) => l.exemplo).length;
   if (exemplos) {
     passos.push(['Os pedidos e lançamentos com nomes fictícios são exemplos para você ver como funciona. Apague quando terminar de explorar.',
@@ -386,6 +396,7 @@ function telaHoje() {
   const deAmanha = ordenarPedidos(validos.filter((p) => p.dataEntrega === somarDias(hoje, 1)));
   const atrasados = ordenarPedidos(d.pedidos.filter((p) => p.dataEntrega < hoje && STATUS_ABERTOS.includes(p.status)));
   const novos = d.pedidos.filter((p) => p.status === 'novo');
+  const aguardando = d.pedidos.filter(aguardandoPagamento);
   const receber = aReceber(d.pedidos);
   const mes = resumoDoMes(mesISO(hoje), d.pedidos, d.lancamentos);
   const producao = producaoDasDatas(d.pedidos, [hoje]);
@@ -399,6 +410,11 @@ function telaHoje() {
     ${novos.length ? `
       <button class="alerta-novos" data-ir="pedidos" data-filtro="novos">
         <span>${novos.length === 1 ? '1 pedido novo esperando confirmação' : `${novos.length} pedidos novos esperando confirmação`}</span>
+        ${icone('avancar')}
+      </button>` : ''}
+    ${aguardando.length ? `
+      <button class="alerta-novos alerta-pagamento" data-ir="pedidos" data-filtro="aguardando">
+        <span>${aguardando.length === 1 ? '1 pedido aguardando pagamento antes da entrega' : `${aguardando.length} pedidos aguardando pagamento antes da entrega`}</span>
         ${icone('avancar')}
       </button>` : ''}
     <div class="kpis">
@@ -443,6 +459,8 @@ function filtrosPedidos() {
   return {
     abertos: ['Em aberto', (p) => STATUS_ABERTOS.includes(p.status), false],
     novos: ['Novos', (p) => p.status === 'novo', false],
+    ...(config().cobrarAntes || dados().pedidos.some(aguardandoPagamento)
+      ? { aguardando: ['Aguardando pagamento', aguardandoPagamento, false] } : {}),
     hoje: ['Hoje', (p) => p.dataEntrega === hoje && p.status !== 'cancelado', false],
     semana: ['Próximos 7 dias', (p) => p.dataEntrega >= hoje && p.dataEntrega <= fim && p.status !== 'cancelado', false],
     areceber: ['A receber', (p) => p.status !== 'cancelado' && !p.pagamento?.pago, false],
@@ -477,7 +495,7 @@ function telaPedidos() {
 
 function htmlChipsPedidos() {
   const f = filtrosPedidos();
-  const contar = ['abertos', 'novos', 'areceber'];
+  const contar = ['abertos', 'novos', 'aguardando', 'areceber'];
   return Object.entries(f).map(([id, [rotulo, filtro]]) => {
     const n = contar.includes(id) ? dados().pedidos.filter(filtro).length : null;
     return `<button type="button" class="chip" data-acao="filtro-pedidos" data-valor="${id}" aria-pressed="${ui.filtroPedidos === id}">${rotulo}${n != null ? `<span class="conta">${n}</span>` : ''}</button>`;
@@ -831,7 +849,25 @@ function telaAjustes() {
           </div>
           <label class="campo"><span>Outras formas (separe por vírgula)</span><input name="formasOutras" id="aj-formas" value="${esc(outras.join(', '))}"></label>
         </fieldset>
-        <label class="campo"><span>Chave Pix</span><input name="chavePix" id="aj-pix" value="${esc(c.chavePix)}"><small>Aparece para o cliente depois que ele monta o pedido.</small></label>
+        <label class="campo"><span>Chave Pix</span><input name="chavePix" id="aj-pix" value="${esc(c.chavePix)}"><small id="aj-pix-dica">${esc(dicaChavePix(c.chavePix))}</small></label>
+      </section>
+
+      <section class="cartao-ajustes">
+        <h2>Cobrar antes da entrega</h2>
+        <p>Ligue quando quiser receber antes de entregar, por exemplo em dias cheios ou encomendas grandes. O cliente paga ao fazer o pedido, e ele fica "aguardando pagamento" até você marcar como pago.</p>
+        <label class="check"><input type="checkbox" name="cobrarAntes" id="aj-cobrar-antes" ${c.cobrarAntes ? 'checked' : ''}> Cobrar antes da entrega nos pedidos do site</label>
+        <fieldset class="secao-janela" id="aj-cobrar-formas" style="border:0;padding:0;margin:0" ${c.cobrarAntes ? '' : 'hidden'}>
+          <legend class="rotulo" style="margin-bottom:.6rem">Como o cliente pode pagar</legend>
+          <label class="check"><input type="checkbox" name="cobrarAntesPix" ${c.cobrarAntesPix !== false ? 'checked' : ''}> Pix: o site mostra o código copia e cola com o valor do pedido</label>
+          <label class="check"><input type="checkbox" name="cobrarAntesCartao" ${c.cobrarAntesCartao !== false ? 'checked' : ''}> Cartão de crédito</label>
+          <div class="sub-opcao" id="aj-cartao" ${c.cobrarAntesCartao !== false ? '' : 'hidden'}>
+            <label class="campo"><span>InfiniteTag da conta InfinitePay (opcional)</span>
+              <input name="infiniteTag" id="aj-infinitetag" value="${esc(c.infiniteTag ? `$${c.infiniteTag}` : '')}" placeholder="$suatag" autocapitalize="off" autocomplete="off" spellcheck="false">
+              <small id="aj-tag-dica">${esc(dicaInfiniteTag(c.infiniteTag))}</small>
+            </label>
+          </div>
+          <p class="aviso-ajuste" id="aj-cobrar-aviso" ${avisoCobrarAntes(c) ? '' : 'hidden'}>${esc(avisoCobrarAntes(c))}</p>
+        </fieldset>
       </section>
 
       <section class="cartao-ajustes">
@@ -871,6 +907,50 @@ function telaAjustes() {
     </section>`;
 }
 
+function dicaChavePix(texto) {
+  const padrao = 'Aparece para o cliente depois que ele monta o pedido.';
+  if (!String(texto || '').trim()) return padrao;
+  const chave = lerChavePix(texto);
+  return chave ? `Chave reconhecida: ${chave.tipo} ${chave.chave}. ${padrao}`
+    : 'Não reconhecemos essa chave. Use CPF, CNPJ, celular com DDD, e-mail ou chave aleatória.';
+}
+
+function dicaInfiniteTag(texto) {
+  if (!String(texto || '').trim()) {
+    return 'Sem a InfiniteTag, você manda um link de pagamento pelo WhatsApp, criado no app da maquininha ou do banco (Stone, InfinitePay, Mercado Pago, PagBank e outros). Com ela, o cliente paga o cartão no próprio site.';
+  }
+  if (!lerInfiniteTag(texto)) return 'Essa InfiniteTag não parece certa. Copie como aparece no app da InfinitePay, por exemplo $bibisalgados.';
+  return 'O cliente paga no site, pela página da InfinitePay, no crédito em até 12x. Na conta, ligue o Checkout Integrado: app da InfinitePay → Vendas → Checkout → Configurações. A InfinitePay cobra a taxa dela em cada venda.';
+}
+
+function avisoCobrarAntes(c) {
+  if (!c.cobrarAntes) return '';
+  if (!c.cobrarAntesPix && !c.cobrarAntesCartao) return 'Escolha pelo menos uma forma. Sem nenhuma, o site continua cobrando na entrega.';
+  if (c.cobrarAntesPix && !lerChavePix(c.chavePix)) {
+    return c.cobrarAntesCartao ? 'O Pix só aparece com uma chave Pix válida. Por enquanto o site oferece só o cartão.'
+      : 'O Pix só aparece com uma chave Pix válida. Sem ela, o site continua cobrando na entrega.';
+  }
+  return '';
+}
+
+// Mostra e esconde as opções e os avisos conforme a pessoa mexe, antes de salvar.
+function atualizarAjustesPagamento() {
+  const f = $('#form-ajustes').elements;
+  const c = {
+    cobrarAntes: f.cobrarAntes.checked,
+    cobrarAntesPix: f.cobrarAntesPix.checked,
+    cobrarAntesCartao: f.cobrarAntesCartao.checked,
+    chavePix: f.chavePix.value,
+  };
+  $('#aj-pix-dica').textContent = dicaChavePix(c.chavePix);
+  $('#aj-tag-dica').textContent = dicaInfiniteTag(f.infiniteTag.value);
+  $('#aj-cartao').hidden = !c.cobrarAntesCartao;
+  $('#aj-cobrar-formas').hidden = !c.cobrarAntes;
+  const aviso = avisoCobrarAntes(c);
+  $('#aj-cobrar-aviso').hidden = !aviso;
+  $('#aj-cobrar-aviso').textContent = aviso;
+}
+
 function htmlRestaurar() {
   const b = ui.backupPendente;
   if (!b) return '';
@@ -905,6 +985,10 @@ function salvarAjustes() {
     antecedenciaHoras: Math.max(0, Math.round(lerNumero(f.antecedenciaHoras.value))),
     formasPagamento: [...formas, ...outras],
     chavePix: f.chavePix.value.trim(),
+    cobrarAntes: f.cobrarAntes.checked,
+    cobrarAntesPix: f.cobrarAntesPix.checked,
+    cobrarAntesCartao: f.cobrarAntesCartao.checked,
+    infiniteTag: lerInfiniteTag(f.infiniteTag.value),
     cmvAlvo: cmv > 0 && cmv < 100 ? cmv / 100 : 0.35,
   });
   ui.ajustesSujo = false;
@@ -1029,7 +1113,7 @@ function abrirPedido(id) {
   const p = existente ? structuredClone(existente) : novoPedido();
   const produtos = [...dados().produtos].sort(porOrdem);
   const prodMap = porId(produtos);
-  const formas = [...new Set([...(config().formasPagamento || []), p.pagamento?.forma].filter(Boolean))];
+  const formas = [...new Set([...(config().formasPagamento || []), ...formasAntecipadas(config()), p.pagamento?.forma].filter(Boolean))];
 
   const opcoesProdutos = agrupar(produtos, (x) => x.categoria || 'Cardápio').map(([cat, lista]) => `
     <optgroup label="${esc(cat)}">${lista.map((x) => `<option value="${esc(x.id)}">${esc(x.nome)} · ${brl(x.preco)} ${esc(rotuloVenda(x))}</option>`).join('')}</optgroup>`).join('');
@@ -1095,7 +1179,12 @@ function abrirPedido(id) {
     <div class="secao-janela">
       <h3>Mensagens prontas para o cliente</h3>
       <div id="ped-mensagens"></div>
+      <div class="secao-janela" id="ped-link-cartao"></div>
     </div>`;
+
+  // Link de pagamento no cartão pela InfinitePay, criado aqui mesmo.
+  let linkCartao = '';
+  let totalDoLink = 0;
 
   function htmlItem(it, i) {
     return `
@@ -1145,7 +1234,59 @@ function abrirPedido(id) {
       <div class="total"><span>Total</span><span>${brl(t.total)}</span></div>`;
   }
 
+  function mensagemCobrar(ola, total, pix) {
+    const base = `${ola} O total do pedido #${p.codigo} ficou ${brl(total)}.`;
+    const chave = lerChavePix(config().chavePix);
+    if (valor('forma') === PIX_ANTECIPADO && chave) {
+      const codigo = codigoPix({ chave: chave.chave, nome: config().nome, cidade: config().cidade, valor: total, identificador: p.codigo });
+      return `${base} Para confirmar, pague com este Pix copia e cola:\n\n${codigo}`;
+    }
+    if (linkCartao) return `${base} Para pagar no cartão, em até 12x, é só usar este link: ${linkCartao}`;
+    if ([CARTAO_PELO_LINK, CARTAO_NO_SITE].includes(valor('forma'))) return `${base} Segue o link para pagar no cartão: `;
+    return `${base}${pix} Qualquer dúvida, é só chamar.`;
+  }
+
+  function desenharLinkCartao() {
+    const alvo = $('#ped-link-cartao');
+    if (!config().infiniteTag || campo('pago').checked) {
+      alvo.innerHTML = '';
+      return;
+    }
+    alvo.innerHTML = linkCartao
+      ? `<label class="campo"><span>Link de pagamento no cartão</span><input id="ped-link" value="${esc(linkCartao)}" readonly></label>
+         <div class="acoes"><button type="button" class="btn btn-pequeno btn-contorno" data-j="copiar-link">${icone('copiar')} Copiar link</button></div>`
+      : `<div class="acoes"><button type="button" class="btn btn-pequeno btn-contorno" data-j="criar-link">${icone('cartao')} Criar link de pagamento no cartão</button></div>
+         <small class="suave">O cliente paga pela InfinitePay, no crédito em até 12x, e o link entra na mensagem "Cobrar".</small>`;
+  }
+
+  async function criarLinkCartao(botao) {
+    const t = totaisAtuais();
+    if (!p.itens.length || t.total < 1) return erroNaJanela('Ponha os itens do pedido antes de criar o link. O valor mínimo é R$ 1,00.');
+    botao.disabled = true;
+    botao.textContent = 'Criando o link…';
+    try {
+      linkCartao = await criarCobranca({
+        tag: config().infiniteTag,
+        pedido: { ...p, ...t, entrega: { tipo: valor('tipo') } },
+        voltarPara: new URL('index.html', location.href).href,
+      });
+      totalDoLink = t.total;
+      desenharLinkCartao();
+      desenharMensagens();
+      aviso('Link criado. Ele já está na mensagem "Cobrar".');
+    } catch (e) {
+      console.warn(e);
+      erroNaJanela(explicarErro(e));
+      desenharLinkCartao();
+    }
+  }
+
   function desenharMensagens() {
+    if (linkCartao && Math.abs(totaisAtuais().total - totalDoLink) > 0.001) {
+      // O valor mudou: o link antigo cobraria o total errado.
+      linkCartao = '';
+      desenharLinkCartao();
+    }
     const tel = valor('telefone');
     const alvo = $('#ped-mensagens');
     if (soDigitos(tel).length < 10) {
@@ -1162,7 +1303,7 @@ function abrirPedido(id) {
       ['Confirmar', `${ola} Seu pedido #${p.codigo} está confirmado para ${quando}. Total: ${brl(t.total)}.${valor('forma') === 'Pix' ? pix : ''} Obrigado pela preferência!`],
       ['Está pronto', `${ola} Seu pedido #${p.codigo} está pronto${entrega ? ' e já vai sair para entrega' : ' para retirar'}.`],
       entrega ? ['Saiu para entrega', `${ola} Seu pedido #${p.codigo} saiu para entrega e chega em breve.`] : null,
-      ['Cobrar', `${ola} O total do pedido #${p.codigo} ficou ${brl(t.total)}.${pix} Qualquer dúvida, é só chamar.`],
+      ['Cobrar', mensagemCobrar(ola, t.total, pix)],
     ].filter(Boolean);
     alvo.innerHTML = `<div class="mensagens-rapidas">${mensagens.map(([rotulo, texto]) => `
       <a class="btn btn-pequeno btn-contorno" href="${esc(linkWhats(tel, texto))}" target="_blank" rel="noopener">${icone('conversa')} ${rotulo}</a>`).join('')}</div>`;
@@ -1190,6 +1331,7 @@ function abrirPedido(id) {
       desenharItens();
       atualizarTotais();
       desenharMensagens();
+      desenharLinkCartao();
       if (!existente) $('#ped-nome').focus();
     },
     aoDigitar(e) {
@@ -1202,6 +1344,7 @@ function abrirPedido(id) {
         $('#ped-entrega').hidden = e.target.value !== 'entrega';
       } else if (nome === 'pago') {
         $('#ped-pagoem').hidden = !e.target.checked;
+        desenharLinkCartao();
       }
       atualizarTotais();
       if (['nome', 'telefone', 'tipo', 'dataEntrega', 'hora', 'forma', 'taxaEntrega', 'desconto', 'qtd-item'].includes(nome)) desenharMensagens();
@@ -1231,6 +1374,13 @@ function abrirPedido(id) {
         desenharItens();
         atualizarTotais();
         desenharMensagens();
+      } else if (acao === 'criar-link') {
+        criarLinkCartao(botao);
+      } else if (acao === 'copiar-link') {
+        copiarTexto(linkCartao).then((ok) => {
+          if (ok) aviso('Link copiado');
+          else $('#ped-link').select();
+        });
       } else if (acao === 'excluir') {
         store.excluir('pedidos', p.id);
         fecharJanela();
@@ -1771,6 +1921,7 @@ document.addEventListener('input', (e) => {
   } else if (e.target.closest('#form-ajustes')) {
     ui.ajustesSujo = true;
     $('#barra-salvar').hidden = false;
+    atualizarAjustesPagamento();
   }
 });
 

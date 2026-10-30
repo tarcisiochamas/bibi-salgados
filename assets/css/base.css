@@ -118,7 +118,7 @@ body {
 img { max-width: 100%; }
 [hidden] { display: none !important; }
 
-h1, h2, h3 { line-height: 1.15; text-wrap: balance; margin: 0; }
+h1, h2, h3, h4 { line-height: 1.15; text-wrap: balance; margin: 0; }
 p { margin: 0; }
 a { color: inherit; }
 
@@ -255,6 +255,7 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
 .pill.sem { background: var(--neutro-fundo); color: var(--neutro); }
 .pill.pago { background: var(--ok-fundo); color: var(--ok); }
 .pill.a-pagar { background: var(--alerta-fundo); color: var(--alerta); }
+.pill.aguardando { background: var(--alerta); color: var(--papel); }
 
 /* ---------- Janela (dialog) ---------- */
 
