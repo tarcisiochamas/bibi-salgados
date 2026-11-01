@@ -7,10 +7,11 @@ import {
 } from './util.js';
 import {
   textoQtd, totaisPedido, formasAntecipadas, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
+  textoEncomenda, textoOcasiao, sugestaoDeSalgados, unidadesDoPedido,
 } from './calculos.js';
 import { lerChavePix, codigoPix, desenharQrPix } from './pix.js';
 import { criarCobranca, lerRetorno, conferirPagamento } from './infinitepay.js';
-import { maximoParaVender, esgotado } from './estoque.js';
+import { maximoParaVender, esgotado, aceitaEncomenda, limiteNoSite, parteEncomendada } from './estoque.js';
 import { icone } from './icones.js';
 
 const CHAVE_CARRINHO = 'bibi-salgados:carrinho';
@@ -83,6 +84,7 @@ function desenharLetreiro() {
   $('#letreiro-info').innerHTML = info
     .map(([ic, txt]) => `<li>${icone(ic)}<span>${esc(txt)}</span></li>`)
     .join('');
+  $('#letreiro-sobre').hidden = !config.apresentacaoPronta;
   $('#pausado').hidden = config.aceitandoPedidos !== false;
 }
 
@@ -97,6 +99,7 @@ function desenharRodape() {
     const user = config.instagram.replace(/^@/, '').trim();
     partes.push(`<p>Instagram: <a href="https://instagram.com/${encodeURIComponent(user)}" target="_blank" rel="noopener">@${esc(user)}</a></p>`);
   }
+  if (config.apresentacaoPronta) partes.push(`<p><a href="sobre.html">Conheça a ${esc(config.nome)}</a></p>`);
   partes.push('<p class="rodape-vendedor"><a href="gestao.html">Área do vendedor</a></p>');
   $('#rodape').innerHTML = partes.join('');
 }
@@ -145,10 +148,10 @@ function qtdNoSeletor(p, qtd) {
 
 function htmlSeletor(p, qtd) {
   if (!qtd) {
-    if (esgotado(p)) return '<span class="item-esgotado">Esgotado</span>';
-    return `<button type="button" class="btn btn-pequeno btn-contorno" data-acao="mais" data-id="${esc(p.id)}">${icone('mais')} Adicionar</button>`;
+    if (esgotado(p) && !aceitaEncomenda(p, config)) return '<span class="item-esgotado">Esgotado</span>';
+    return `<button type="button" class="btn btn-pequeno btn-contorno" data-acao="mais" data-id="${esc(p.id)}">${icone('mais')} ${esgotado(p) ? 'Encomendar' : 'Adicionar'}</button>`;
   }
-  const max = maximoParaVender(p);
+  const max = limiteNoSite(p, config);
   const noLimite = max != null && qtd + (Number(p.passo) || 1) > max + 1e-9;
   return `
     <div class="qtd" role="group" aria-label="Quantidade de ${esc(p.nome)}">
@@ -160,17 +163,24 @@ function htmlSeletor(p, qtd) {
 
 function htmlItem(p) {
   const qtd = carrinho[p.id] || 0;
+  const semPronto = esgotado(p);
+  const encomenda = semPronto && aceitaEncomenda(p, config);
+  const classes = ['item', qtd && 'no-pedido', semPronto && !encomenda && 'esgotado', p.foto && 'com-foto'];
   return `
-    <article class="item${qtd ? ' no-pedido' : ''}${esgotado(p) ? ' esgotado' : ''}" data-item="${esc(p.id)}">
-      <div class="item-linha">
-        <h3>${esc(p.nome)}</h3>
-        <span class="item-pontilhado" aria-hidden="true"></span>
-        <span class="item-preco">${brl(p.preco)}</span>
-      </div>
-      ${p.descricao ? `<p class="item-desc">${esc(p.descricao)}</p>` : ''}
-      <div class="item-acoes">
-        <span class="item-unidade">${esc(rotuloUnidade(p))}</span>
-        ${htmlSeletor(p, qtd)}
+    <article class="${classes.filter(Boolean).join(' ')}" data-item="${esc(p.id)}">
+      ${p.foto ? `<img class="item-foto" src="${esc(p.foto)}" alt="" width="96" height="96" loading="lazy" decoding="async">` : ''}
+      <div class="item-corpo">
+        <div class="item-linha">
+          <h3>${esc(p.nome)}</h3>
+          <span class="item-pontilhado" aria-hidden="true"></span>
+          <span class="item-preco">${brl(p.preco)}</span>
+        </div>
+        ${p.descricao ? `<p class="item-desc">${esc(p.descricao)}</p>` : ''}
+        ${encomenda ? '<p class="item-aviso">Os prontos acabaram: fica sob encomenda.</p>' : ''}
+        <div class="item-acoes">
+          <span class="item-unidade">${esc(rotuloUnidade(p))}</span>
+          ${htmlSeletor(p, qtd)}
+        </div>
       </div>
     </article>`;
 }
@@ -209,8 +219,9 @@ function mudarQtd(id, direcao) {
   const p = produtos.find((x) => x.id === id);
   if (!p) return;
   const passo = Number(p.passo) || 1;
-  const nova = Math.max(0, Math.round(((carrinho[id] || 0) + direcao * passo) * 100) / 100);
-  const max = maximoParaVender(p);
+  const antes = carrinho[id] || 0;
+  const nova = Math.max(0, Math.round((antes + direcao * passo) * 100) / 100);
+  const max = limiteNoSite(p, config);
   if (direcao > 0 && max != null && nova > max + 1e-9) {
     avisoRapido(max > 0 ? `Só temos ${textoDisponivel(p, max)} de ${p.nome} agora.` : `${p.nome} esgotou.`);
     return;
@@ -219,15 +230,22 @@ function mudarQtd(id, direcao) {
   gravarLocal(CHAVE_CARRINHO, carrinho);
   redesenharItem(id);
   desenharBarra();
+  // Passou do que tem pronto: avisa uma vez que o resto fica sob encomenda.
+  if (direcao > 0 && aceitaEncomenda(p, config) && parteEncomendada(p, nova) > 0 && !(parteEncomendada(p, antes) > 0)) {
+    const tem = maximoParaVender(p);
+    avisoRapido(tem > 0
+      ? `Temos ${textoDisponivel(p, tem)} de ${p.nome} prontos. O resto fica sob encomenda.`
+      : `${p.nome} fica sob encomenda.`);
+  }
 }
 
 // O estoque mudou (ou o carrinho ficou guardado de outro dia): tira do
-// carrinho o que passou do que tem pronto.
+// carrinho o que passou do que tem pronto, se o salgado não aceita encomenda.
 function ajustarAoEstoque() {
   const ajustados = [];
   for (const [id, qtd] of Object.entries(carrinho)) {
     const p = produtos.find((x) => x.id === id);
-    const max = maximoParaVender(p);
+    const max = limiteNoSite(p, config);
     if (max == null || qtd <= max + 1e-9) continue;
     if (max > 0) carrinho[id] = max; else delete carrinho[id];
     ajustados.push([p, max]);
@@ -244,9 +262,11 @@ function itensDoCarrinho() {
   return Object.entries(carrinho)
     .map(([id, qtd]) => {
       const p = produtos.find((x) => x.id === id);
-      return p && qtd > 0
-        ? { produtoId: p.id, nome: p.nome, preco: Number(p.preco) || 0, qtd, rende: Number(p.rende) || 1, unidade: p.unidade || 'unidade' }
-        : null;
+      if (!p || !(qtd > 0)) return null;
+      const item = { produtoId: p.id, nome: p.nome, preco: Number(p.preco) || 0, qtd, rende: Number(p.rende) || 1, unidade: p.unidade || 'unidade' };
+      const encomenda = aceitaEncomenda(p, config) ? parteEncomendada(p, qtd) : 0;
+      if (encomenda > 0) item.encomenda = encomenda;
+      return item;
     })
     .filter(Boolean);
 }
@@ -283,7 +303,13 @@ function lerFormulario() {
     hora: v('hora'),
     forma: f.elements.forma?.value || '',
     obs: v('obs'),
+    ocasiao: f.elements.ocasiao?.value || '',
+    pessoas: v('pessoas'),
   };
+}
+
+function ocasioesDoSite() {
+  return (config.ocasioes || []).filter((o) => o?.nome);
 }
 
 function montarPedido(form) {
@@ -295,7 +321,9 @@ function montarPedido(form) {
     desconto: 0,
   };
   const t = totaisPedido(base);
+  const pessoas = Math.min(10000, Math.round(lerNumeroSimples(form.pessoas)));
   return {
+    ...(form.ocasiao ? { ocasiao: { tipo: form.ocasiao, ...(pessoas > 0 ? { pessoas } : {}) } } : {}),
     id: `site-${codigo}-${Date.now().toString(36)}`,
     codigo,
     criadoEm: new Date().toISOString(),
@@ -315,9 +343,17 @@ function montarPedido(form) {
   };
 }
 
+// Pessoas e outros números digitados: "30", "30 pessoas", "1.000".
+function lerNumeroSimples(texto) {
+  return Number(String(texto || '').replace(/\D/g, '')) || 0;
+}
+
 function montarMensagem(pedido) {
   const l = [`Olá, ${config.nome}! Quero fazer um pedido:`, ''];
-  for (const it of pedido.itens) l.push(`• ${textoQtd(it)} ${it.nome} = ${brl(it.preco * it.qtd)}`);
+  for (const it of pedido.itens) {
+    const encomenda = textoEncomenda(it);
+    l.push(`• ${textoQtd(it)} ${it.nome}${encomenda ? ` (${encomenda})` : ''} = ${brl(it.preco * it.qtd)}`);
+  }
   l.push('');
   if (pedido.taxaEntrega > 0) {
     l.push(`Subtotal: ${brl(pedido.subtotal)}`);
@@ -325,6 +361,7 @@ function montarMensagem(pedido) {
   }
   l.push(`*Total: ${brl(pedido.total)}*`, '');
   l.push(`*Nome:* ${pedido.cliente.nome || '(não informado)'}`);
+  if (pedido.ocasiao) l.push(`*Ocasião:* ${textoOcasiao(pedido.ocasiao)}`);
   l.push(pedido.entrega.tipo === 'entrega' ? `*Entrega em:* ${pedido.entrega.endereco}` : '*Vou retirar*');
   if (pedido.dataEntrega) l.push(`*Para:* ${dataComDia(pedido.dataEntrega)}${pedido.hora ? ` às ${pedido.hora}` : ''}`);
   if (pedido.pagamento.forma) l.push(`*Pagamento:* ${textoPagamento(pedido.pagamento.forma)}`);
@@ -345,6 +382,7 @@ function textoPagamento(forma) {
 function validar(form, pedido) {
   const erros = {};
   if (!pedido.itens.length) erros.itens = 'Escolha pelo menos um salgado.';
+  if (ocasioesDoSite().length && !form.ocasiao) erros.ocasiao = 'Escolha a ocasião do pedido.';
   if (!form.nome) erros.nome = 'Diga seu nome para a gente saber de quem é o pedido.';
   if (form.tipo === 'entrega' && form.endereco.length < 6) erros.endereco = 'Informe rua, número e bairro.';
   if (!form.data) erros.data = 'Escolha o dia.';
@@ -354,7 +392,7 @@ function validar(form, pedido) {
   }
   for (const it of pedido.itens) {
     const p = produtos.find((x) => x.id === it.produtoId);
-    const max = maximoParaVender(p);
+    const max = limiteNoSite(p, config);
     if (max != null && it.qtd > max + 1e-9) {
       erros.itens = max > 0 ? `Só temos ${textoDisponivel(p, max)} de ${p.nome}.` : `${p.nome} esgotou. Tire do pedido para continuar.`;
     }
@@ -373,14 +411,29 @@ function desenharFinalizar() {
   const form = anterior || {
     nome: salvo.nome || '', telefone: salvo.telefone || '', tipo: salvo.tipo || 'retirada',
     endereco: salvo.endereco || '', data: dataMinima(), hora: '', forma: formas[0], obs: '',
+    ocasiao: '', pessoas: '',
   };
   if (!formas.includes(form.forma)) form.forma = formas[0];
   const itens = itensDoCarrinho();
+  const ocasioes = ocasioesDoSite();
 
   $('#titulo-pedido').textContent = 'Seu pedido';
   $('#corpo-pedido').innerHTML = `
     <div class="resumo-itens" id="resumo-itens">${htmlResumo(itens)}</div>
     <p class="erro-campo" data-erro="itens" hidden></p>
+
+    ${ocasioes.length ? `
+      <fieldset class="bloco" style="border:0;padding:0;margin:0">
+        <legend class="rotulo" style="margin-bottom:.6rem">Qual é a ocasião?</legend>
+        <div class="opcoes">
+          ${ocasioes.map((o) => `<label class="opcao"><input type="radio" name="ocasiao" value="${esc(o.nome)}" ${form.ocasiao === o.nome ? 'checked' : ''}> ${esc(o.nome)}</label>`).join('')}
+        </div>
+        <span class="erro-campo" data-erro="ocasiao" hidden></span>
+        <label class="campo campo-pessoas"><span>Quantas pessoas? (opcional)</span>
+          <input name="pessoas" id="pessoas" inputmode="numeric" autocomplete="off" maxlength="5" value="${esc(form.pessoas)}" placeholder="Ex.: 30">
+        </label>
+        <p class="sugestao" id="sugestao" aria-live="polite" hidden></p>
+      </fieldset>` : ''}
 
     <fieldset class="bloco" style="border:0;padding:0;margin:0">
       <legend class="rotulo" style="margin-bottom:.6rem">Como você quer receber?</legend>
@@ -455,11 +508,12 @@ function htmlResumo(itens) {
   if (!itens.length) return '<p class="suave">Seu pedido está vazio.</p>';
   return itens.map((it) => {
     const p = produtos.find((x) => x.id === it.produtoId);
+    const encomenda = textoEncomenda(it);
     return `
       <div class="resumo-item">
         <span class="nome">${esc(it.nome)}</span>
         <span class="preco">${brl(it.preco * it.qtd)}</span>
-        <span class="unit">${brl(it.preco)} ${esc(rotuloUnidade(p))}</span>
+        <span class="unit">${brl(it.preco)} ${esc(rotuloUnidade(p))}${encomenda ? `<span class="resumo-encomenda">${esc(encomenda)}</span>` : ''}</span>
         ${htmlSeletor(p, it.qtd)}
       </div>`;
   }).join('');
@@ -478,6 +532,21 @@ function atualizarFinalizar() {
   if (botao) {
     botao.href = config.whatsapp ? linkWhats(config.whatsapp, montarMensagem(pedido)) : '#';
   }
+  desenharSugestao(pedido);
+}
+
+// "Para 30 pessoas, a gente sugere uns 360 salgados", pela ocasião escolhida.
+function desenharSugestao(pedido) {
+  const el = $('#sugestao');
+  if (!el) return;
+  const s = sugestaoDeSalgados(pedido.ocasiao, config.ocasioes);
+  el.hidden = !s;
+  if (!s) return;
+  const tem = unidadesDoPedido(pedido.itens);
+  let situacao = '';
+  if (tem > 0 && tem < s.total) situacao = ` Seu pedido tem ${num(tem)}: faltam uns ${num(s.total - tem)}.`;
+  else if (tem >= s.total) situacao = ` Seu pedido tem ${num(tem)}: dá certinho.`;
+  el.innerHTML = `Para ${num(s.pessoas)} ${s.pessoas === 1 ? 'pessoa' : 'pessoas'}, a gente sugere uns <strong>${num(s.total)} salgados</strong> (${num(s.porPessoa)} por pessoa).${esc(situacao)}`;
 }
 
 function mostrarErros(erros) {
@@ -492,7 +561,9 @@ function mostrarErros(erros) {
   }
   const primeiro = Object.keys(erros)[0];
   if (primeiro) {
-    const alvo = $('#form-pedido').elements[primeiro] || document.querySelector(`[data-erro="${primeiro}"]`);
+    let alvo = $('#form-pedido').elements[primeiro] || document.querySelector(`[data-erro="${primeiro}"]`);
+    // Grupo de opções (a ocasião): vai para a primeira.
+    if (alvo instanceof RadioNodeList) alvo = alvo[0];
     alvo?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     if (alvo?.focus) alvo.focus({ preventScroll: true });
   }
@@ -511,7 +582,7 @@ function enviar(evento) {
   if (!config.whatsapp) evento.preventDefault();
 
   gravarLocal(CHAVE_CLIENTE, { nome: form.nome, telefone: form.telefone, tipo: form.tipo, endereco: form.endereco });
-  store.criarPedidoSite(pedido).catch((e) => console.warn('Pedido não foi salvo na gestão:', e));
+  salvarNaGestao(pedido);
 
   carrinho = {};
   gravarLocal(CHAVE_CARRINHO, carrinho);
@@ -522,6 +593,22 @@ function enviar(evento) {
     desenharBarra();
     mostrarEnviado(pedido, mensagem);
   }, 60);
+}
+
+// Guarda o pedido na gestão. Se o banco ainda estiver com as regras antigas,
+// que não conhecem a ocasião, tenta de novo com a ocasião nas observações.
+async function salvarNaGestao(pedido) {
+  try {
+    await store.criarPedidoSite(pedido);
+  } catch (e) {
+    if (!pedido.ocasiao) {
+      console.warn('Pedido não foi salvo na gestão:', e);
+      return;
+    }
+    const { ocasiao, ...resto } = pedido;
+    const obs = [`Ocasião: ${textoOcasiao(ocasiao)}`, pedido.obs].filter(Boolean).join(' · ').slice(0, 500);
+    store.criarPedidoSite({ ...resto, obs }).catch((e2) => console.warn('Pedido não foi salvo na gestão:', e2));
+  }
 }
 
 function mostrarEnviado(pedido, mensagem) {
@@ -737,6 +824,10 @@ document.addEventListener('input', (e) => {
   }
   if (e.target.name === 'forma' && $('#dica-pagamento')) {
     $('#dica-pagamento').textContent = DICA_FORMA[e.target.value] || '';
+  }
+  if (e.target.name === 'ocasiao') {
+    const msg = document.querySelector('#form-pedido [data-erro="ocasiao"]');
+    if (msg) msg.hidden = true;
   }
   if (e.target.classList.contains('campo-invalido')) {
     e.target.classList.remove('campo-invalido');

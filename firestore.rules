@@ -17,11 +17,20 @@ service cloud.firestore {
         && request.auth.token.email.lower() in ['dono@exemplo.com'];
     }
 
+    // Ocasião do pedido (aniversário, reunião...) e quantas pessoas. É opcional.
+    function ocasiaoValida(d) {
+      return !('ocasiao' in d)
+        || (d.ocasiao is map && d.ocasiao.keys().hasOnly(['tipo', 'pessoas'])
+            && d.ocasiao.tipo is string && d.ocasiao.tipo.size() > 0 && d.ocasiao.tipo.size() <= 40
+            && (!('pessoas' in d.ocasiao)
+                || (d.ocasiao.pessoas is number && d.ocasiao.pessoas > 0 && d.ocasiao.pessoas <= 10000)));
+    }
+
     function pedidoDoSiteValido(pedidoId) {
       let d = request.resource.data;
       return d.keys().hasOnly(['id', 'codigo', 'criadoEm', 'origem', 'status', 'cliente', 'entrega',
                                'dataEntrega', 'hora', 'itens', 'subtotal', 'taxaEntrega', 'desconto',
-                               'total', 'pagamento', 'obs'])
+                               'total', 'pagamento', 'obs', 'ocasiao'])
         && d.id == pedidoId
         && d.origem == 'Site'
         && d.status == 'novo'
@@ -41,7 +50,8 @@ service cloud.firestore {
         && d.pagamento is map && d.pagamento.keys().hasOnly(['forma', 'pago', 'pagoEm'])
         && d.pagamento.pago == false
         && d.pagamento.forma is string && d.pagamento.forma.size() <= 40
-        && d.obs is string && d.obs.size() <= 500;
+        && d.obs is string && d.obs.size() <= 500
+        && ocasiaoValida(d);
     }
 
     // Dados do negócio que aparecem no site (nome, WhatsApp, taxa de entrega...)

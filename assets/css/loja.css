@@ -55,6 +55,7 @@ body::before {
   color: var(--dourado);
 }
 .letreiro-slogan { max-width: 34rem; font-size: 1.05rem; }
+.letreiro-sobre { justify-self: start; color: var(--dourado); font-weight: 700; text-underline-offset: 3px; }
 .letreiro-info {
   display: flex;
   flex-wrap: wrap;
@@ -132,11 +133,29 @@ body::before {
 
 .item {
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.9rem;
   padding-block: 1rem;
   border-bottom: 1px dashed var(--linha);
 }
 .item:last-child { border-bottom: 0; }
+.item-corpo { display: grid; gap: 0.35rem; min-width: 0; }
+
+/* Foto do salgado, à esquerda do nome */
+.item.com-foto { grid-template-columns: 88px minmax(0, 1fr); align-items: start; }
+.item-foto {
+  display: block;
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 14px;
+  background: var(--superficie);
+}
+@media (min-width: 720px) {
+  .item.com-foto { grid-template-columns: 112px minmax(0, 1fr); }
+  .item-foto { width: 112px; height: 112px; }
+}
+.item-aviso { font-size: 0.875rem; font-weight: 700; color: var(--alerta); }
 .item-linha { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
 .item-linha h3 { font-size: 1.075rem; font-weight: 700; min-width: 0; }
 .item-pontilhado {
@@ -162,7 +181,7 @@ body::before {
 }
 
 /* Salgado de estoque que acabou */
-.item.esgotado .item-linha, .item.esgotado .item-desc { opacity: 0.5; }
+.item.esgotado .item-linha, .item.esgotado .item-desc, .item.esgotado .item-foto { opacity: 0.5; }
 .item-esgotado {
   padding: 0.3rem 0.8rem;
   border: 1.5px solid var(--linha);
@@ -265,6 +284,17 @@ body::before {
 .resumo-item .nome { font-weight: 700; min-width: 0; }
 .resumo-item .preco { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 .resumo-item .unit { color: var(--tinta-suave); font-size: 0.875rem; }
+.resumo-encomenda { display: block; color: var(--alerta); font-weight: 700; }
+
+/* Ocasião e sugestão de quantidade */
+.campo-pessoas { max-width: 220px; }
+.sugestao {
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--raio);
+  background: var(--info-fundo);
+  color: var(--info);
+  font-size: 0.95rem;
+}
 
 .bloco { display: grid; gap: 0.85rem; }
 .bloco > h3 { font-size: 1rem; }
@@ -332,3 +362,19 @@ body::before {
 @media (max-width: 699px) {
   .pix-qr { display: none; }
 }
+
+/* ---------- Página de apresentação ---------- */
+
+.sobre-titulo {
+  font-family: var(--fonte-titulo);
+  font-weight: 600;
+  font-size: clamp(1.8rem, 6vw, 2.6rem);
+  letter-spacing: 0.02em;
+  color: var(--vinho-texto);
+}
+.sobre { display: grid; gap: 1.75rem; padding-block: 2rem 2.5rem; }
+.sobre-texto { display: grid; gap: 1rem; max-width: 40rem; font-size: 1.075rem; }
+.sobre-fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; }
+.sobre-fotos:empty { display: none; }
+.sobre-fotos img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--raio); background: var(--superficie); }
+.sobre-acao { margin: 0; }

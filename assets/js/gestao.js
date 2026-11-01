@@ -12,13 +12,15 @@ import {
   custoDoProduto, analisarPreco, totaisPedido, resumoItens, producaoDasDatas, ingredientesDaProducao,
   quantidadeLegivel, resumoDoMes, aReceber, clientesDosPedidos, dataDoRecebimento,
   formasAntecipadas, aguardandoPagamento, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
+  textoOcasiao, textoEncomenda, dreDoMes,
 } from './calculos.js';
 import { lerChavePix, codigoPix } from './pix.js';
 import { lerInfiniteTag, criarCobranca, explicarErro } from './infinitepay.js';
 import {
   controlaEstoque, foiContado, esgotado, situacaoProduto, situacaoIngrediente, movimentoDoPedido,
-  movimentoDaProducao, emPedidosNovos, faltasDepois, listaDeCompras, contexto,
+  movimentoDaProducao, emPedidosNovos, faltasDepois, listaDeCompras, contexto, aceitaEncomenda, simularCompra,
 } from './estoque.js';
+import { reduzirFoto, tamanhoDaFoto } from './fotos.js';
 import { icone } from './icones.js';
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
@@ -64,6 +66,7 @@ const ui = {
   abaCardapio: 'produtos',
   abaEstoque: 'prontos',
   diasCompras: 7,
+  simulacao: [],
   mes: mesISO(hojeISO()),
   ajustesSujo: false,
   backupPendente: null,
@@ -296,6 +299,7 @@ function desenhar() {
   const [titulo, desenharTela] = TELAS[ui.tela];
   main.innerHTML = desenharTela();
   document.title = `${titulo} · Gestão · ${config().nome}`;
+  if (ui.tela === 'ajustes') desenharQrPrevia();
 }
 
 function desenharSinc() {
@@ -395,6 +399,7 @@ function linhaPedido(p, { acao = 'status', mostrarData = false } = {}) {
             ${pago}
             <span class="pl-tag">${icone(entrega ? 'entrega' : 'loja')}${entrega ? 'Entrega' : 'Retirada'}</span>
             ${p.origem === 'Site' ? '<span class="pl-tag">pelo site</span>' : ''}
+            ${p.ocasiao?.tipo ? `<span class="pl-tag">${esc(textoOcasiao(p.ocasiao))}</span>` : ''}
           </span>
         </span>
       </button>
@@ -709,13 +714,14 @@ function textoListaCompras() {
 
 function telaEstoque() {
   const aba = ui.abaEstoque;
-  const abas = [['prontos', 'Prontos'], ['ingredientes', 'Ingredientes'], ['compras', 'Compras']];
+  const abas = [['prontos', 'Prontos'], ['ingredientes', 'Ingredientes'], ['compras', 'Compras'], ['simular', 'Simular']];
+  const telas = { ingredientes: htmlEstoqueIngredientes, compras: htmlCompras, simular: htmlSimulacao };
   return `
     <div class="g-titulo"><h1>Estoque</h1></div>
     <div class="segmentado" role="group" aria-label="Ver">
       ${abas.map(([id, rotulo]) => `<button type="button" data-acao="aba-estoque" data-valor="${id}" aria-pressed="${aba === id}">${rotulo}</button>`).join('')}
     </div>
-    ${aba === 'ingredientes' ? htmlEstoqueIngredientes() : aba === 'compras' ? htmlCompras() : htmlEstoqueProntos()}`;
+    ${(telas[aba] || htmlEstoqueProntos)()}`;
 }
 
 const PILL_PRODUTO = {
@@ -731,8 +737,11 @@ function htmlEstoqueProntos() {
   const comEstoque = produtos.filter(controlaEstoque);
   const sobEncomenda = produtos.filter((p) => !controlaEstoque(p) && p.ativo !== false);
   const novos = emPedidosNovos(d.pedidos, porId(d.produtos));
+  const encomenda = config().encomendaQuandoEsgotar !== false;
   return `
-    <p class="nota">Para o que fica pronto esperando venda, como os congelados. Quando acaba, o site mostra <strong>Esgotado</strong> e não deixa pedir. O pedido tira do estoque quando você confirma e devolve se for cancelado.</p>
+    <p class="nota">Para o que fica pronto esperando venda, como os congelados. ${encomenda
+      ? 'Quando acaba, o cliente ainda pode encomendar: o estoque fica negativo e mostra quanto falta produzir.'
+      : 'Quando acaba, o site mostra <strong>Esgotado</strong> e não deixa pedir.'} O pedido tira do estoque quando você confirma e devolve se for cancelado.</p>
     <section class="g-secao">
       <h2>Com estoque</h2>
       ${comEstoque.length ? `<div class="lista">${comEstoque.map((p) => {
@@ -745,7 +754,9 @@ function htmlEstoqueProntos() {
             </span>
             <span class="linha-valores">
               <strong class="num${tem < 0 ? ' texto-erro' : ''}">${esc(tem < 0 ? `Faltam ${qtdVenda(p, -tem)}` : qtdVenda(p, tem))}</strong>
-              ${p.ativo === false ? '<span class="pill sem">Fora do site</span>' : PILL_PRODUTO[situacaoProduto(p)]}
+              ${p.ativo === false ? '<span class="pill sem">Fora do site</span>'
+                : situacaoProduto(p) === 'esgotado' && aceitaEncomenda(p, config()) ? '<span class="pill atencao">Acabou: sob encomenda</span>'
+                  : PILL_PRODUTO[situacaoProduto(p)]}
             </span>
           </button>`;
       }).join('')}</div>` : vazio('Nenhum produto com estoque ainda. Toque em um produto abaixo para ligar.')}
@@ -849,6 +860,77 @@ function textoDaListaDeCompras() {
   return l.join('\n');
 }
 
+// "Quero fazer 500 coxinhas": o que comprar e quanto custa, pelas fichas técnicas.
+function htmlSimulacao() {
+  const produtos = [...dados().produtos].sort(porOrdem);
+  if (!produtos.length) return vazio('Cadastre os produtos e as fichas técnicas no Cardápio primeiro.');
+  if (!ui.simulacao.length) ui.simulacao = [{ produtoId: produtos[0].id, unidades: '' }];
+  return `
+    <p class="nota">Diga quantos salgados quer fazer. A conta usa as fichas técnicas e desconta o que você já tem contado no estoque.</p>
+    <div class="simulacao" id="simulacao">
+      ${ui.simulacao.map((l, i) => `
+        <div class="sim-linha">
+          <select data-sim="produto" data-i="${i}" aria-label="Salgado">${produtos.map((p) => `<option value="${esc(p.id)}" ${p.id === l.produtoId ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select>
+          <span class="com-sufixo sufixo-largo"><input data-sim="unidades" data-i="${i}" inputmode="numeric" value="${esc(l.unidades)}" placeholder="500" aria-label="Quantos salgados"><span>salgados</span></span>
+          <button type="button" class="btn-icone" data-acao="sim-remover" data-valor="${i}" aria-label="Tirar da simulação" ${ui.simulacao.length < 2 ? 'hidden' : ''}>${icone('lixeira')}</button>
+        </div>`).join('')}
+      <div class="acoes"><button type="button" class="btn btn-contorno btn-pequeno" data-acao="sim-adicionar">${icone('mais')} Outro salgado</button></div>
+    </div>
+    <div id="sim-resultado">${htmlResultadoSimulacao()}</div>`;
+}
+
+function resultadoSimulacao() {
+  return simularCompra(ui.simulacao.map((l) => ({ produtoId: l.produtoId, unidades: lerNumero(l.unidades) })), dados());
+}
+
+// O que comprar de um ingrediente: em embalagens fechadas ou, sem o tamanho da embalagem, na unidade dele.
+function textoComprar(l) {
+  if (l.embalagens) return `${l.embalagens} × ${tamanhoEmbalagem(l.ingrediente)}`;
+  return l.falta > 0 ? estoqueLegivel(l.falta, l.ingrediente.unidade) : '';
+}
+
+function htmlResultadoSimulacao() {
+  const r = resultadoSimulacao();
+  const semFicha = r.semFicha.length
+    ? `<p class="nota">Sem ficha técnica, por isso fora da conta: ${esc(r.semFicha.join(', '))}. Monte a ficha no Cardápio.</p>` : '';
+  if (!r.linhas.length) return semFicha + vazio('Escolha o salgado e diga quantos quer fazer.');
+  return `
+    <div class="kpis">
+      ${kpi('Ingredientes da produção', brl(r.custoUso), `${brl(r.porSalgado)} por salgado · ${plural(r.unidades, 'salgado', 'salgados')}`)}
+      ${kpi('Comprar agora', brl(r.custoCompra), r.custoCompra > 0 ? 'em embalagens fechadas' : 'o que você tem cobre tudo')}
+    </div>
+    <div class="tabela-rolagem"><table class="tabela">
+      <thead><tr><th>Ingrediente</th><th class="direita">Comprar</th><th class="direita">Custo</th></tr></thead>
+      <tbody>${r.linhas.map((l) => {
+        const u = l.ingrediente.unidade;
+        const partes = [`precisa ${estoqueLegivel(l.usa, u)}`, l.contado ? `tem ${estoqueLegivel(l.tem, u)}` : 'sem contagem'];
+        return `
+          <tr>
+            <td>${esc(l.ingrediente.nome)}<div class="detalhe-linha">${esc(partes.join(' · '))}</div></td>
+            <td class="direita">${esc(textoComprar(l) || '–')}</td>
+            <td class="direita">${l.custo ? brl(l.custo) : '–'}</td>
+          </tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr><td>Total para comprar</td><td></td><td class="direita">${brl(r.custoCompra)}</td></tr></tfoot>
+    </table></div>
+    ${semFicha}
+    <p class="nota">O custo da produção conta os ingredientes e as embalagens da ficha, sem gás, óleo e perdas. A compra vem arredondada para a embalagem que você compra.</p>
+    <div class="acoes"><button class="btn btn-contorno" data-acao="copiar-simulacao">${icone('copiar')} Copiar lista</button></div>`;
+}
+
+function textoDaSimulacao() {
+  const r = resultadoSimulacao();
+  const prodMap = porId(dados().produtos);
+  const l = [`Simulação de compra · ${config().nome}`, ''];
+  for (const s of ui.simulacao) {
+    if (lerNumero(s.unidades) > 0 && prodMap[s.produtoId]) l.push(`${num(lerNumero(s.unidades))} ${prodMap[s.produtoId].nome}`);
+  }
+  l.push('', 'Comprar:');
+  for (const x of r.linhas) if (textoComprar(x)) l.push(`- ${x.ingrediente.nome}: ${textoComprar(x)}`);
+  l.push('', `Total estimado: ${brl(r.custoCompra)}`);
+  return l.join('\n');
+}
+
 // Alerta da tela Hoje: o que acabou ou está acabando.
 function textoAlertaEstoque() {
   const d = dados();
@@ -856,7 +938,11 @@ function textoAlertaEstoque() {
   const acabando = d.produtos.filter((p) => p.ativo !== false && situacaoProduto(p) === 'acabando');
   const ingredientes = d.ingredientes.filter((i) => ['esgotado', 'acabando'].includes(situacaoIngrediente(i)));
   const partes = [];
-  if (esgotados.length) partes.push(esgotados.length === 1 ? `${esgotados[0].nome} esgotado no site` : `${esgotados.length} salgados esgotados no site`);
+  const encomenda = config().encomendaQuandoEsgotar !== false;
+  if (esgotados.length) {
+    if (encomenda) partes.push(esgotados.length === 1 ? `${esgotados[0].nome} acabou (fica sob encomenda)` : `${esgotados.length} salgados acabaram (ficam sob encomenda)`);
+    else partes.push(esgotados.length === 1 ? `${esgotados[0].nome} esgotado no site` : `${esgotados.length} salgados esgotados no site`);
+  }
   if (acabando.length) partes.push(acabando.length === 1 ? `${acabando[0].nome} acabando` : `${acabando.length} salgados acabando`);
   if (ingredientes.length) partes.push(plural(ingredientes.length, 'item para repor', 'itens para repor'));
   return { texto: partes.join(' · '), aba: esgotados.length || acabando.length ? 'prontos' : 'ingredientes' };
@@ -1001,6 +1087,16 @@ function telaFinancas() {
       <button class="btn btn-contorno" data-acao="novo-lancamento" data-tipo="saida" data-categoria="${esc(RETIRADA)}">${icone('dinheiro')} Retirada (seu salário)</button>
     </div>
     <section class="g-secao">
+      <div class="g-secao-topo">
+        <h2>Resultado do mês (DRE)</h2>
+        <button class="btn btn-pequeno btn-contorno" data-acao="copiar-dre">${icone('copiar')} Copiar</button>
+      </div>
+      <div class="tabela-rolagem"><table class="tabela dre"><tbody>${linhasDoDre(dreDoMes(r)).map((x) => `
+        <tr class="dre-${x.tipo}"><td>${esc(x.rotulo)}</td><td class="direita${x.tipo === 'total' && x.valor < 0 ? ' texto-erro' : ''}">${esc(valorDoDre(x))}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="nota">DRE é o demonstrativo de resultado. Aqui ele conta o dinheiro que entrou e saiu no mês; suas retiradas e o dinheiro que você colocou ficam fora.</p>
+    </section>
+    <section class="g-secao">
       <h2>Para onde foi o dinheiro</h2>
       ${r.porCategoria.length ? `<div class="barras">${r.porCategoria.map(([cat, v]) => `
         <div class="barra-item">
@@ -1019,6 +1115,37 @@ function telaFinancas() {
     <div class="nota">
       <strong>Dinheiro do negócio separado do seu.</strong> Receba as vendas numa conta ou chave Pix só do negócio, pague as compras com esse dinheiro e tire um valor fixo por semana ou por mês como o seu salário, registrando como retirada. Assim o lucro daqui é o lucro de verdade.
     </div>`;
+}
+
+// Linhas do DRE na ordem do resultado: o que soma, o que tira e os totais.
+function linhasDoDre(dre) {
+  const comMargem = (rotulo, margem) => (margem != null ? `${rotulo} (${pct(margem)})` : rotulo);
+  const linhas = [
+    { rotulo: 'Vendas', valor: dre.vendas, tipo: 'total' },
+    { rotulo: 'Taxas de cartão e iFood', valor: dre.taxas, tipo: 'menos' },
+    { rotulo: 'Receita líquida', valor: dre.receitaLiquida, tipo: 'total' },
+    { rotulo: 'Ingredientes e embalagens', valor: dre.custo, tipo: 'menos' },
+    { rotulo: comMargem('Lucro bruto', dre.margemBruta), valor: dre.lucroBruto, tipo: 'total' },
+    ...dre.despesas.map(([categoria, valor]) => ({ rotulo: categoria, valor, tipo: 'menos' })),
+    { rotulo: 'Impostos (MEI)', valor: dre.impostos, tipo: 'menos' },
+  ];
+  if (dre.outrasEntradas) linhas.push({ rotulo: 'Outras entradas', valor: dre.outrasEntradas, tipo: 'mais' });
+  linhas.push({ rotulo: comMargem('Lucro do mês', dre.margem), valor: dre.lucro, tipo: 'total' });
+  return linhas;
+}
+
+function valorDoDre(x) {
+  if (x.tipo === 'menos') return `− ${brl(x.valor)}`;
+  if (x.tipo === 'mais') return `+ ${brl(x.valor)}`;
+  return brl(x.valor);
+}
+
+function textoDoDre() {
+  const d = dados();
+  const dre = dreDoMes(resumoDoMes(ui.mes, d.pedidos, d.lancamentos));
+  const l = [`DRE · ${config().nome} · ${capitalizar(nomeMes(ui.mes))}`, ''];
+  for (const x of linhasDoDre(dre)) l.push(`${x.tipo === 'total' ? '= ' : ''}${x.rotulo}: ${valorDoDre(x)}`);
+  return l.join('\n');
 }
 
 function htmlMovimento(m) {
@@ -1079,6 +1206,7 @@ function telaAjustes() {
       <section class="cartao-ajustes">
         <h2>Regras dos pedidos</h2>
         <label class="check"><input type="checkbox" name="aceitandoPedidos" id="aj-aceitando" ${c.aceitandoPedidos !== false ? 'checked' : ''}> Aceitando pedidos pelo site</label>
+        <label class="check"><input type="checkbox" name="encomendaQuandoEsgotar" id="aj-encomenda" ${c.encomendaQuandoEsgotar !== false ? 'checked' : ''}> Quando um salgado de estoque acabar, o cliente ainda pode encomendar</label>
         <div class="grade-campos">
           <label class="campo"><span>Taxa de entrega</span><span class="com-prefixo"><span>R$</span><input name="taxaEntrega" id="aj-taxa" inputmode="decimal" value="${dinheiroInput(c.taxaEntrega)}"></span></label>
           <label class="campo"><span>Pedido mínimo</span><span class="com-prefixo"><span>R$</span><input name="pedidoMinimo" id="aj-minimo" inputmode="decimal" value="${dinheiroInput(c.pedidoMinimo)}"></span></label>
@@ -1092,6 +1220,18 @@ function telaAjustes() {
           <label class="campo"><span>Outras formas (separe por vírgula)</span><input name="formasOutras" id="aj-formas" value="${esc(outras.join(', '))}"></label>
         </fieldset>
         <label class="campo"><span>Chave Pix</span><input name="chavePix" id="aj-pix" value="${esc(c.chavePix)}"><small id="aj-pix-dica">${esc(dicaChavePix(c.chavePix))}</small></label>
+      </section>
+
+      <section class="cartao-ajustes">
+        <h2>Ocasião do pedido</h2>
+        <p>O cliente escolhe a ocasião ao pedir. Com o número de pessoas, o site sugere quantos salgados pedir. Ponha 0 para não sugerir e apague o nome para tirar a opção.</p>
+        <div class="ocasioes-editor">
+          ${[...(c.ocasioes || []), { nome: '', porPessoa: '' }, { nome: '', porPessoa: '' }].map((o, i) => `
+            <div class="ocasiao-linha">
+              <label class="campo"><span>Ocasião</span><input name="ocasiao-nome" data-i="${i}" value="${esc(o.nome)}" maxlength="40" placeholder="Nova ocasião"></label>
+              <label class="campo"><span>Por pessoa</span><input name="ocasiao-porpessoa" data-i="${i}" inputmode="numeric" value="${o.nome ? num(Number(o.porPessoa) || 0) : ''}"></label>
+            </div>`).join('')}
+        </div>
       </section>
 
       <section class="cartao-ajustes">
@@ -1123,6 +1263,26 @@ function telaAjustes() {
         <button class="btn" type="submit">Salvar ajustes</button>
       </div>
     </form>
+
+    <section class="cartao-ajustes">
+      <h2>Página de apresentação</h2>
+      <p>Uma página separada contando quem é a ${esc(c.nome)}, com fotos. O link para ela aparece no topo do site quando tiver texto ou fotos.</p>
+      <div class="acoes">
+        <button class="btn" data-acao="editar-apresentacao">${icone('editar')} Editar apresentação</button>
+        ${c.apresentacaoPronta ? `<a class="btn btn-contorno" href="sobre.html" target="_blank" rel="noopener">${icone('loja')} Ver a página</a>` : ''}
+      </div>
+    </section>
+
+    <section class="cartao-ajustes">
+      <h2>QR code para panfleto</h2>
+      <p>Para o panfleto ou o balcão. Quem aponta a câmera do celular abre o site com o cardápio, ou já cai na conversa do WhatsApp.</p>
+      <div class="qr-previa" id="qr-previa" aria-hidden="true"></div>
+      <div class="acoes">
+        <button class="btn" data-acao="baixar-qr" data-valor="site">${icone('baixar')} QR do site</button>
+        ${c.whatsapp ? `<button class="btn btn-contorno" data-acao="baixar-qr" data-valor="whats">${icone('baixar')} QR do WhatsApp</button>` : ''}
+      </div>
+      <p class="suave">A imagem sai grande (PNG), boa para imprimir.</p>
+    </section>
 
     <section class="cartao-ajustes">
       <h2>Seus dados</h2>
@@ -1213,6 +1373,12 @@ function salvarAjustes() {
   const instagram = f.instagram.value.trim()
     .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/[/?#].*$/, '');
   const cmv = lerNumero(f.cmvAlvo.value);
+  const ocasioes = [...document.querySelectorAll('#form-ajustes [name="ocasiao-nome"]')]
+    .map((el) => ({
+      nome: el.value.trim(),
+      porPessoa: Math.max(0, Math.round(lerNumero($(`#form-ajustes [name="ocasiao-porpessoa"][data-i="${el.dataset.i}"]`).value))),
+    }))
+    .filter((o) => o.nome);
   store.salvarConfig({
     nome: f.nome.value.trim() || 'Meu negócio',
     whatsapp: telefoneWhats(f.whatsapp.value),
@@ -1222,6 +1388,8 @@ function salvarAjustes() {
     horario: f.horario.value.trim(),
     areaEntrega: f.areaEntrega.value.trim(),
     aceitandoPedidos: f.aceitandoPedidos.checked,
+    encomendaQuandoEsgotar: f.encomendaQuandoEsgotar.checked,
+    ocasioes,
     taxaEntrega: lerNumero(f.taxaEntrega.value),
     pedidoMinimo: lerNumero(f.pedidoMinimo.value),
     antecedenciaHoras: Math.max(0, Math.round(lerNumero(f.antecedenciaHoras.value))),
@@ -1261,6 +1429,67 @@ async function lerArquivoBackup(arquivo) {
   }
   const area = $('#area-restaurar');
   if (area) area.innerHTML = htmlRestaurar();
+}
+
+// ---------- QR code para o panfleto ----------
+
+// Para onde o QR leva: o site (a página de vendas) ou a conversa no WhatsApp.
+function destinoDoQr(tipo) {
+  if (tipo === 'whats') return linkWhats(config().whatsapp, `Olá! Vi o panfleto da ${config().nome} e quero fazer um pedido.`);
+  return new URL('./', location.href).href;
+}
+
+async function gerarQr(texto) {
+  const { default: qrcode } = await import('./vendor/qrcode.js');
+  const qr = qrcode(0, 'M');
+  qr.addData(texto);
+  qr.make();
+  return qr;
+}
+
+async function desenharQrPrevia() {
+  const alvo = $('#qr-previa');
+  if (!alvo) return;
+  try {
+    const qr = await gerarQr(destinoDoQr('site'));
+    alvo.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true, title: 'QR code do site' });
+  } catch (e) {
+    console.warn('QR code não carregou:', e);
+    alvo.hidden = true;
+  }
+}
+
+// PNG grande, preto no branco, com a margem que a câmera precisa.
+async function baixarQr(tipo) {
+  try {
+    const qr = await gerarQr(destinoDoQr(tipo));
+    const modulos = qr.getModuleCount();
+    const margem = 4;
+    const tam = Math.ceil(1200 / (modulos + margem * 2));
+    const lado = tam * (modulos + margem * 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = lado;
+    canvas.height = lado;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, lado, lado);
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < modulos; y += 1) {
+      for (let x = 0; x < modulos; x += 1) {
+        if (qr.isDark(y, x)) ctx.fillRect((x + margem) * tam, (y + margem) * tam, tam, tam);
+      }
+    }
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `qr-${tipo === 'whats' ? 'whatsapp' : 'site'}-${semAcento(config().nome).replace(/[^a-z0-9]+/g, '-')}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    aviso('QR code baixado');
+  } catch (e) {
+    console.warn(e);
+    aviso('Não deu para gerar o QR code agora.', 'erro');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1356,6 +1585,7 @@ function abrirPedido(id) {
   const produtos = [...dados().produtos].sort(porOrdem);
   const prodMap = porId(produtos);
   const formas = [...new Set([...(config().formasPagamento || []), ...formasAntecipadas(config()), p.pagamento?.forma].filter(Boolean))];
+  const ocasioes = [...new Set([...(config().ocasioes || []).map((o) => o.nome), p.ocasiao?.tipo].filter(Boolean))];
 
   const opcoesProdutos = agrupar(produtos, (x) => x.categoria || 'Cardápio').map(([cat, lista]) => `
     <optgroup label="${esc(cat)}">${lista.map((x) => `<option value="${esc(x.id)}">${esc(x.nome)} · ${brl(x.preco)} ${esc(rotuloVenda(x))}${controlaEstoque(x) ? esc(` · ${esgotado(x) ? 'esgotado' : `${qtdVenda(x, x.estoque)} no estoque`}`) : ''}</option>`).join('')}</optgroup>`).join('');
@@ -1366,6 +1596,13 @@ function abrirPedido(id) {
       <div class="grade-campos">
         <label class="campo"><span>Nome</span><input name="nome" id="ped-nome" value="${esc(p.cliente?.nome)}" maxlength="80" autocomplete="off"></label>
         <label class="campo"><span>WhatsApp</span><input name="telefone" id="ped-telefone" type="tel" inputmode="tel" value="${esc(p.cliente?.telefone)}" placeholder="(17) 99999-9999"></label>
+        <label class="campo"><span>Ocasião</span>
+          <select name="ocasiao" id="ped-ocasiao">
+            <option value="">Não informada</option>
+            ${ocasioes.map((o) => `<option ${p.ocasiao?.tipo === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="campo"><span>Pessoas</span><input name="pessoas" id="ped-pessoas" inputmode="numeric" value="${p.ocasiao?.pessoas ? num(p.ocasiao.pessoas) : ''}"></label>
       </div>
     </div>
 
@@ -1433,7 +1670,7 @@ function abrirPedido(id) {
       <div class="item-editor">
         <div>
           <div class="nome">${esc(it.nome)}</div>
-          <div class="detalhe">${brl(it.preco)} ${esc(rotuloPreco(it))}<span data-un="${i}">${(Number(it.rende) || 1) > 1 ? ` · ${num(it.qtd * it.rende)} un` : ''}</span></div>
+          <div class="detalhe">${brl(it.preco)} ${esc(rotuloPreco(it))}<span data-un="${i}">${(Number(it.rende) || 1) > 1 ? ` · ${num(it.qtd * it.rende)} un` : ''}</span>${it.encomenda ? ` · <span class="texto-alerta">${esc(textoEncomenda(it))}</span>` : ''}</div>
         </div>
         <div class="valor" data-valor="${i}">${brl(it.preco * it.qtd)}</div>
         <div class="qtd-editor" style="grid-column:1 / -1">
@@ -1636,6 +1873,11 @@ function abrirPedido(id) {
       if (!p.itens.length) return erroNaJanela('Ponha pelo menos um item no pedido.');
       if (!valor('dataEntrega')) return erroNaJanela('Escolha o dia da entrega ou retirada.');
       const pago = campo('pago').checked;
+      // A parte sob encomenda veio do site; não pode passar da quantidade.
+      for (const it of p.itens) if (it.encomenda > it.qtd) it.encomenda = it.qtd;
+      const pessoas = Math.max(0, Math.round(lerNumero(valor('pessoas'))));
+      if (valor('ocasiao')) p.ocasiao = { tipo: valor('ocasiao'), ...(pessoas > 0 ? { pessoas } : {}) };
+      else delete p.ocasiao;
       Object.assign(p, {
         cliente: { nome, telefone: valor('telefone').trim() },
         entrega: { tipo: valor('tipo'), endereco: valor('tipo') === 'entrega' ? valor('endereco').trim() : '' },
@@ -1652,6 +1894,88 @@ function abrirPedido(id) {
       const faltas = salvarPedido(p);
       fecharJanela();
       avisoComFaltas(existente ? 'Pedido salvo' : `Pedido #${p.codigo} criado`, faltas);
+    },
+  });
+}
+
+// ---------- Página de apresentação ----------
+
+const MAX_FOTOS_APRESENTACAO = 6;
+// O documento do banco aceita até 1 MB; o resto fica de folga.
+const LIMITE_APRESENTACAO = 950000;
+const TEXTO_SUGERIDO = 'Na Bibi Salgados, cada salgado é feito com cuidado: massa preparada por nós, recheio de verdade e fritura na hora, para chegar crocante na sua festa, reunião ou confraternização.\n\nMonte o seu pedido pelo site e combine a entrega ou a retirada com a gente pelo WhatsApp.';
+
+async function abrirApresentacao() {
+  let salvo = null;
+  try {
+    salvo = await store.lerApresentacao();
+  } catch (e) {
+    aviso(`Não deu para abrir a apresentação: ${mensagemErro(e)}`, 'erro');
+    return;
+  }
+  const a = { titulo: salvo?.titulo || 'Quem somos', texto: salvo?.texto || '', fotos: [...(salvo?.fotos || [])] };
+  const corpo = `
+    <div class="secao-janela">
+      <label class="campo"><span>Título</span><input name="titulo" id="ap-titulo" value="${esc(a.titulo)}" maxlength="60"></label>
+      <label class="campo"><span>Texto</span>
+        <textarea name="texto" id="ap-texto" rows="7" maxlength="3000" placeholder="${esc(TEXTO_SUGERIDO)}">${esc(a.texto)}</textarea>
+        <small>Separe os parágrafos com uma linha em branco.</small>
+      </label>
+      ${a.texto ? '' : '<div class="acoes"><button type="button" class="btn btn-pequeno btn-contorno" data-j="usar-texto">Usar o texto sugerido</button></div>'}
+    </div>
+    <div class="secao-janela">
+      <h3>Fotos</h3>
+      <p class="suave">Até ${MAX_FOTOS_APRESENTACAO} fotos. Cada uma é reduzida antes de guardar.</p>
+      <div class="ap-fotos" id="ap-fotos"></div>
+      <div class="acoes"><label class="btn btn-contorno" id="ap-add">${icone('mais')} Adicionar fotos<input type="file" name="fotos-novas" accept="image/*" multiple hidden></label></div>
+    </div>`;
+
+  function desenharFotos() {
+    $('#ap-fotos').innerHTML = a.fotos.length
+      ? a.fotos.map((f, i) => `
+        <figure class="ap-foto">
+          <img src="${esc(f)}" alt="Foto ${i + 1}">
+          <button type="button" class="btn-icone" data-j="tirar-foto" data-i="${i}" aria-label="Tirar a foto ${i + 1}">${icone('lixeira')}</button>
+        </figure>`).join('')
+      : '<p class="suave">Nenhuma foto ainda.</p>';
+    $('#ap-add').hidden = a.fotos.length >= MAX_FOTOS_APRESENTACAO;
+  }
+
+  abrirJanela({
+    titulo: 'Página de apresentação',
+    corpo,
+    rodape: rodapeEditor(),
+    aoAbrir: desenharFotos,
+    async aoDigitar(e) {
+      if (e.target.name !== 'fotos-novas' || !e.target.files?.length) return;
+      const arquivos = [...e.target.files].slice(0, MAX_FOTOS_APRESENTACAO - a.fotos.length);
+      e.target.value = '';
+      for (const arquivo of arquivos) {
+        try {
+          a.fotos.push(await reduzirFoto(arquivo, { lado: 800, qualidade: 0.7 }));
+        } catch (err) {
+          erroNaJanela(err.message);
+        }
+      }
+      desenharFotos();
+    },
+    aoClicar(acao, botao) {
+      if (acao === 'tirar-foto') {
+        a.fotos.splice(Number(botao.dataset.i), 1);
+        desenharFotos();
+      } else if (acao === 'usar-texto') {
+        campo('texto').value = TEXTO_SUGERIDO;
+        botao.closest('.acoes')?.remove();
+      }
+    },
+    aoSalvar() {
+      const nova = { titulo: valor('titulo').trim() || 'Quem somos', texto: valor('texto').trim(), fotos: a.fotos };
+      const tamanho = nova.fotos.reduce((s, f) => s + tamanhoDaFoto(f), 0) + nova.texto.length;
+      if (tamanho > LIMITE_APRESENTACAO) return erroNaJanela('As fotos passaram do espaço da página. Tire uma ou duas e salve de novo.');
+      store.salvarApresentacao(nova);
+      store.salvarConfig({ apresentacaoPronta: Boolean(nova.texto || nova.fotos.length) });
+      fecharJanela();
+      aviso('Página de apresentação salva');
     },
   });
 }
@@ -1674,6 +1998,7 @@ function abrirProduto(id) {
   const ingredientes = [...d.ingredientes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const tipoVenda = (Number(prod.rende) || 1) <= 1 ? 'unidade' : prod.unidade === 'cento' ? 'cento' : 'pacote';
   const estoqueInicial = numeroInput(Number(prod.estoque) || 0);
+  let foto = prod.foto || '';
 
   const corpo = `
     <div class="secao-janela">
@@ -1694,11 +2019,19 @@ function abrirProduto(id) {
         <label class="campo" id="pr-campo-pacote" ${tipoVenda === 'pacote' ? '' : 'hidden'}><span>Salgados no pacote</span><input name="rendePacote" id="pr-pacote" inputmode="numeric" value="${tipoVenda === 'pacote' ? num(prod.rende) : '25'}"></label>
         <label class="campo campo-largo"><span>Descrição</span><textarea name="descricao" id="pr-descricao" rows="2" maxlength="240">${esc(prod.descricao)}</textarea></label>
       </div>
+      <div class="foto-produto">
+        <img class="foto-previa" id="pr-foto" alt="Foto de ${esc(prod.nome || 'produto')}" ${prod.foto ? `src="${esc(prod.foto)}"` : 'hidden'}>
+        <div class="foto-acoes">
+          <label class="btn btn-contorno btn-pequeno">${icone('camera')} <span id="pr-foto-rotulo">${prod.foto ? 'Trocar foto' : 'Pôr foto'}</span><input type="file" name="foto-arquivo" accept="image/*" hidden></label>
+          <button type="button" class="btn btn-contorno btn-pequeno" id="pr-foto-tirar" data-j="tirar-foto" ${prod.foto ? '' : 'hidden'}>${icone('lixeira')} Tirar foto</button>
+          <small class="suave">Aparece ao lado do nome no cardápio.</small>
+        </div>
+      </div>
       <label class="check" id="pr-campo-meio" ${tipoVenda === 'cento' ? '' : 'hidden'}><input type="checkbox" name="meioCento" ${Number(prod.passo) < 1 ? 'checked' : ''}> Aceita meio cento (50 un)</label>
       <label class="check"><input type="checkbox" name="ativo" ${prod.ativo !== false ? 'checked' : ''}> Mostrar na página de vendas</label>
       <label class="check"><input type="checkbox" name="controlarEstoque" ${controlaEstoque(prod) ? 'checked' : ''}> Controlar estoque (para o que fica pronto, como os congelados)</label>
       <div class="grade-campos" id="pr-estoque" ${controlaEstoque(prod) ? '' : 'hidden'}>
-        <label class="campo"><span>Prontos agora</span><span class="com-sufixo sufixo-largo"><input name="estoque" id="pr-estoque-qtd" inputmode="decimal" value="${estoqueInicial}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>Quando acaba, o site mostra Esgotado.</small></label>
+        <label class="campo"><span>Prontos agora</span><span class="com-sufixo sufixo-largo"><input name="estoque" id="pr-estoque-qtd" inputmode="decimal" value="${estoqueInicial}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>${config().encomendaQuandoEsgotar !== false ? 'Quando acaba, o cliente ainda pode encomendar.' : 'Quando acaba, o site mostra Esgotado.'}</small></label>
         <label class="campo"><span>Estoque mínimo</span><span class="com-sufixo sufixo-largo"><input name="estoqueMinimo" id="pr-estoque-min" inputmode="decimal" value="${Number(prod.estoqueMinimo) > 0 ? numeroInput(prod.estoqueMinimo) : ''}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>Quando chegar nele, avisa na tela Hoje.</small></label>
       </div>
     </div>
@@ -1747,7 +2080,16 @@ function abrirProduto(id) {
       ativo: campo('ativo').checked,
       controlarEstoque: campo('controlarEstoque').checked,
       estoqueMinimo: Math.max(0, lerNumero(valor('estoqueMinimo'))),
+      foto: foto || undefined,
     };
+  }
+
+  function mostrarFoto() {
+    const img = $('#pr-foto');
+    img.hidden = !foto;
+    if (foto) img.src = foto; else img.removeAttribute('src');
+    $('#pr-foto-rotulo').textContent = foto ? 'Trocar foto' : 'Pôr foto';
+    $('#pr-foto-tirar').hidden = !foto;
   }
 
   function lerFicha() {
@@ -1820,6 +2162,17 @@ function abrirProduto(id) {
     },
     aoDigitar(e) {
       const nome = e.target.name;
+      if (nome === 'foto-arquivo') {
+        const arquivo = e.target.files?.[0];
+        e.target.value = '';
+        if (arquivo) {
+          reduzirFoto(arquivo).then((f) => {
+            foto = f;
+            mostrarFoto();
+          }).catch((err) => erroNaJanela(err.message));
+        }
+        return;
+      }
       if (nome === 'tipoVenda' || nome === 'rendePacote') {
         $('#pr-campo-pacote').hidden = valor('tipoVenda') !== 'pacote';
         $('#pr-campo-meio').hidden = valor('tipoVenda') !== 'cento';
@@ -1849,6 +2202,9 @@ function abrirProduto(id) {
       } else if (acao === 'usar-sugerido') {
         campo('preco').value = dinheiroInput(Number(botao.dataset.valor));
         atualizarResultado();
+      } else if (acao === 'tirar-foto') {
+        foto = '';
+        mostrarFoto();
       } else if (acao === 'excluir') {
         store.excluir('produtos', prod.id);
         if (fichaExistente) store.excluir('fichas', prod.id);
@@ -2367,6 +2723,26 @@ document.addEventListener('click', async (e) => {
     case 'copiar-lista-compras':
       aviso(await copiarTexto(textoDaListaDeCompras()) ? 'Lista copiada. Cole no WhatsApp ou nas notas.' : 'Não deu para copiar neste aparelho.');
       break;
+    case 'sim-adicionar': {
+      const usados = new Set(ui.simulacao.map((l) => l.produtoId));
+      const produtos = [...dados().produtos].sort(porOrdem);
+      const proximo = produtos.find((p) => !usados.has(p.id)) || produtos[0];
+      if (proximo) ui.simulacao.push({ produtoId: proximo.id, unidades: '' });
+      desenhar();
+      break;
+    }
+    case 'sim-remover':
+      ui.simulacao.splice(Number(v), 1);
+      desenhar();
+      break;
+    case 'copiar-simulacao':
+      aviso(await copiarTexto(textoDaSimulacao()) ? 'Lista copiada. Cole no WhatsApp ou nas notas.' : 'Não deu para copiar neste aparelho.');
+      break;
+    case 'copiar-dre':
+      aviso(await copiarTexto(textoDoDre()) ? 'DRE copiado. Cole no WhatsApp ou num e-mail.' : 'Não deu para copiar neste aparelho.');
+      break;
+    case 'baixar-qr': baixarQr(v); break;
+    case 'editar-apresentacao': abrirApresentacao(); break;
     case 'novo-produto': abrirProduto(); break;
     case 'novo-ingrediente': abrirIngrediente(); break;
     case 'mes':
@@ -2424,6 +2800,13 @@ document.addEventListener('input', (e) => {
     ui.ajustesSujo = true;
     $('#barra-salvar').hidden = false;
     atualizarAjustesPagamento();
+  } else if (e.target.dataset.sim) {
+    // Simulação de compra: muda só o resultado, para não perder o que está sendo digitado.
+    const linha = ui.simulacao[Number(e.target.dataset.i)];
+    if (!linha) return;
+    if (e.target.dataset.sim === 'produto') linha.produtoId = e.target.value;
+    else linha.unidades = e.target.value;
+    $('#sim-resultado').innerHTML = htmlResultadoSimulacao();
   }
 });
 

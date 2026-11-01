@@ -14,8 +14,19 @@ export const CONFIG_PADRAO = {
   areaEntrega: 'Entregamos em toda a cidade.',
   taxaEntrega: 8,
   pedidoMinimo: 30,
-  antecedenciaHoras: 24,
+  // Sem prazo mínimo por enquanto: o cliente pode pedir para o mesmo dia.
+  antecedenciaHoras: 0,
   aceitandoPedidos: true,
+  // Quando um salgado de estoque acaba, o cliente ainda pode encomendar.
+  encomendaQuandoEsgotar: true,
+  // O cliente escolhe a ocasião ao pedir e o site sugere quantos salgados
+  // pedir pelo número de pessoas. Zero não sugere.
+  ocasioes: [
+    { nome: 'Aniversário', porPessoa: 12 },
+    { nome: 'Confraternização', porPessoa: 10 },
+    { nome: 'Reunião', porPessoa: 6 },
+    { nome: 'Outros', porPessoa: 0 },
+  ],
   formasPagamento: ['Pix', 'Dinheiro', 'Cartão na entrega'],
   chavePix: '',
   // Cobrar antes da entrega: desligado até o dono ligar em Ajustes.

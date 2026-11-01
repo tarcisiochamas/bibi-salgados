@@ -6,7 +6,7 @@
 // - Ingredientes: saem quando o pedido fica pronto, pela ficha técnica, e só
 //   para os ingredientes que já foram contados.
 
-import { STATUS_A_PRODUZIR, porId, unidadesDoItem } from './calculos.js';
+import { STATUS_A_PRODUZIR, porId, unidadesDoItem, custoPorUnidadeBase } from './calculos.js';
 
 export const STATUS_COM_RESERVA = ['confirmado', 'producao', 'pronto', 'entregue'];
 export const STATUS_PRODUZIDO = ['pronto', 'entregue'];
@@ -31,6 +31,24 @@ export function maximoParaVender(produto) {
 
 export function esgotado(produto) {
   return controlaEstoque(produto) && maximoParaVender(produto) <= 0;
+}
+
+// Salgado de estoque que o cliente ainda pode encomendar depois que os prontos
+// acabam (ligado em Ajustes). O pedido segura tudo na confirmação, então o
+// estoque fica negativo e a tela de estoque mostra quanto falta produzir.
+export function aceitaEncomenda(produto, config) {
+  return controlaEstoque(produto) && config?.encomendaQuandoEsgotar !== false;
+}
+
+// O máximo que o site deixa pôr no carrinho; null quando não há limite.
+export function limiteNoSite(produto, config) {
+  return aceitaEncomenda(produto, config) ? null : maximoParaVender(produto);
+}
+
+// Quanto do item passa do que está pronto e fica sob encomenda.
+export function parteEncomendada(produto, qtd) {
+  const max = maximoParaVender(produto);
+  return max == null ? 0 : Math.max(0, arred((Number(qtd) || 0) - max));
 }
 
 // Situação para a tela de estoque: 'esgotado', 'acabando', 'ok' ou 'sem' (sem contagem).
@@ -211,14 +229,66 @@ export function listaDeCompras({ pedidos, produtos, fichas, ingredientes }, ate)
     const tem = contado ? Math.max(0, ing.estoque) : 0;
     const falta = arred(usa + minimo - tem);
     if (falta <= 0 || (!contado && !usa)) continue;
-    const embalagem = Number(ing.qtdEmbalagem) || 0;
-    const embalagens = embalagem > 0 ? Math.ceil(falta / embalagem - 1e-9) : 0;
-    linhas.push({
-      ingrediente: ing, usa, minimo, tem, contado, falta, embalagens,
-      custo: embalagens * (Number(ing.precoEmbalagem) || 0),
+    linhas.push({ ingrediente: ing, usa, minimo, tem, contado, falta, ...emEmbalagens(ing, falta) });
+  }
+  linhas.sort(ingredientesPrimeiro);
+  return { linhas, custoTotal: linhas.reduce((s, l) => s + l.custo, 0) };
+}
+
+// Quantas embalagens de compra cobrem a falta, e quanto custam.
+function emEmbalagens(ing, falta) {
+  const embalagem = Number(ing.qtdEmbalagem) || 0;
+  const embalagens = embalagem > 0 && falta > 0 ? Math.ceil(falta / embalagem - 1e-9) : 0;
+  return { embalagens, custo: embalagens * (Number(ing.precoEmbalagem) || 0) };
+}
+
+function ingredientesPrimeiro(a, b) {
+  return Number(Boolean(a.ingrediente.embalagem)) - Number(Boolean(b.ingrediente.embalagem))
+    || a.ingrediente.nome.localeCompare(b.ingrediente.nome, 'pt-BR');
+}
+
+// ---------- Simulação de compra ----------
+
+// "Quero fazer 500 coxinhas": o que a produção gasta de cada ingrediente pelas
+// fichas técnicas, quanto custa e o que falta comprar, descontando o que já
+// foi contado. "linhas" vem em salgados: [{ produtoId, unidades }].
+export function simularCompra(linhas, { produtos, fichas, ingredientes }) {
+  const produtosPorId = porId(produtos);
+  const fichasPorId = porId(fichas);
+  const itens = [];
+  const semFicha = [];
+  let unidades = 0;
+  for (const l of linhas) {
+    const qtd = Number(l.unidades) || 0;
+    const prod = produtosPorId[l.produtoId];
+    if (!(qtd > 0) || !prod) continue;
+    const ficha = fichasPorId[prod.id];
+    if (!ficha || !(Number(ficha.rendimento) > 0) || !(ficha.itens || []).length) {
+      semFicha.push(prod.nome);
+      continue;
+    }
+    itens.push({ produtoId: prod.id, qtd, rende: 1 });
+    unidades += qtd;
+  }
+
+  const gasto = gastoDosItens(itens, fichasPorId);
+  const resultado = [];
+  for (const ing of ingredientes) {
+    const usa = gasto[ing.id] || 0;
+    if (!(usa > 0)) continue;
+    const contado = foiContado(ing);
+    const tem = contado ? Math.max(0, ing.estoque) : 0;
+    const falta = arred(Math.max(0, usa - tem));
+    resultado.push({
+      ingrediente: ing, usa, tem, contado, falta, ...emEmbalagens(ing, falta),
+      custoUso: custoPorUnidadeBase(ing) * usa,
     });
   }
-  linhas.sort((a, b) => Number(Boolean(a.ingrediente.embalagem)) - Number(Boolean(b.ingrediente.embalagem))
-    || a.ingrediente.nome.localeCompare(b.ingrediente.nome, 'pt-BR'));
-  return { linhas, custoTotal: linhas.reduce((s, l) => s + l.custo, 0) };
+  resultado.sort(ingredientesPrimeiro);
+  const custoUso = resultado.reduce((s, l) => s + l.custoUso, 0);
+  return {
+    linhas: resultado, unidades, semFicha, custoUso,
+    custoCompra: resultado.reduce((s, l) => s + l.custo, 0),
+    porSalgado: unidades > 0 ? custoUso / unidades : 0,
+  };
 }
