@@ -96,7 +96,43 @@ export function textoQtd(item) {
 }
 
 export function resumoItens(itens) {
-  return (itens || []).map((i) => `${textoQtd(i)} ${i.nome}`).join(', ');
+  return (itens || []).map((i) => {
+    const encomenda = textoEncomenda(i);
+    return `${textoQtd(i)} ${i.nome}${encomenda ? ` (${encomenda})` : ''}`;
+  }).join(', ');
+}
+
+// Parte do item que passou do estoque pronto: "1 pacote sob encomenda",
+// "sob encomenda" (o item todo) ou '' (nada).
+export function textoEncomenda(item) {
+  const n = Number(item.encomenda) || 0;
+  if (!(n > 0)) return '';
+  if (n >= (Number(item.qtd) || 0)) return 'sob encomenda';
+  const qtd = (Number(item.rende) || 1) === 1
+    ? `${n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un`
+    : textoQtd({ ...item, qtd: n });
+  return `${qtd} sob encomenda`;
+}
+
+export function unidadesDoPedido(itens) {
+  return (itens || []).reduce((s, i) => s + unidadesDoItem(i), 0);
+}
+
+// ---------- Ocasião do pedido ----------
+
+// "Aniversário · 30 pessoas"
+export function textoOcasiao(ocasiao) {
+  if (!ocasiao?.tipo) return '';
+  const pessoas = Number(ocasiao.pessoas) || 0;
+  return pessoas > 0 ? `${ocasiao.tipo} · ${pessoas} ${pessoas === 1 ? 'pessoa' : 'pessoas'}` : ocasiao.tipo;
+}
+
+// Quantos salgados sugerir para a ocasião e o número de pessoas; null sem sugestão.
+export function sugestaoDeSalgados(ocasiao, ocasioes) {
+  const porPessoa = Number((ocasioes || []).find((o) => o.nome === ocasiao?.tipo)?.porPessoa) || 0;
+  const pessoas = Number(ocasiao?.pessoas) || 0;
+  if (!(porPessoa > 0) || !(pessoas > 0)) return null;
+  return { porPessoa, pessoas, total: porPessoa * pessoas };
 }
 
 // Soma por produto o que precisa ser produzido para os pedidos das datas pedidas.
@@ -183,6 +219,41 @@ export function resumoDoMes(mes, pedidos, lancamentos) {
     margem: vendas > 0 ? lucro / vendas : null,
     porCategoria: Object.entries(porCategoria).sort((a, b) => b[1] - a[1]),
     lancamentos: doMes,
+  };
+}
+
+// ---------- DRE do mês ----------
+
+// Despesas que o DRE mostra em linha própria. As outras entram em "Despesas".
+export const TAXAS = 'Taxas (cartão, iFood)';
+export const CUSTO_DOS_SALGADOS = ['Ingredientes', 'Embalagens'];
+export const IMPOSTOS = 'Impostos (MEI)';
+
+// DRE (demonstrativo de resultado) pelo dinheiro que entrou e saiu no mês, a
+// partir do resumoDoMes: vendas, menos taxas, menos o que foi comprado para
+// fazer os salgados, menos despesas e impostos. Retiradas e aportes do dono
+// ficam de fora, então o lucro bate com o do resumo.
+export function dreDoMes(r) {
+  const entradas = (filtro) => r.lancamentos
+    .filter((l) => l.tipo === 'entrada' && filtro(l.categoria))
+    .reduce((s, l) => s + (Number(l.valor) || 0), 0);
+  const gasto = Object.fromEntries(r.porCategoria);
+  const vendas = r.vendasPedidos.reduce((s, p) => s + (Number(p.total) || 0), 0)
+    + entradas((c) => c === 'Venda avulsa');
+  const taxas = gasto[TAXAS] || 0;
+  const custo = CUSTO_DOS_SALGADOS.reduce((s, c) => s + (gasto[c] || 0), 0);
+  const impostos = gasto[IMPOSTOS] || 0;
+  const separadas = new Set([TAXAS, IMPOSTOS, ...CUSTO_DOS_SALGADOS]);
+  const despesas = r.porCategoria.filter(([c]) => !separadas.has(c));
+  const totalDespesas = despesas.reduce((s, [, v]) => s + v, 0);
+  const outrasEntradas = entradas((c) => !['Venda avulsa', APORTE].includes(c));
+  const receitaLiquida = vendas - taxas;
+  const lucroBruto = receitaLiquida - custo;
+  const lucro = lucroBruto - totalDespesas - impostos + outrasEntradas;
+  return {
+    vendas, taxas, receitaLiquida, custo, lucroBruto, despesas, totalDespesas, impostos, outrasEntradas, lucro,
+    margemBruta: receitaLiquida > 0 ? lucroBruto / receitaLiquida : null,
+    margem: vendas > 0 ? lucro / vendas : null,
   };
 }
 

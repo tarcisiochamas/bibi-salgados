@@ -44,6 +44,9 @@ function normalizar(bruto) {
   if (!bruto || typeof bruto !== 'object') return d;
   d.config = completarConfig(bruto.config);
   for (const c of COLECOES) d[c] = Array.isArray(bruto[c]) ? bruto[c].filter((x) => x && x.id) : [];
+  // Página de apresentação (texto e fotos). Na nuvem ela fica num documento
+  // separado, config/apresentacao, para as fotos não pesarem no cardápio.
+  if (bruto.apresentacao && typeof bruto.apresentacao === 'object') d.apresentacao = bruto.apresentacao;
   return d;
 }
 
@@ -147,7 +150,9 @@ async function abrirLocal() {
       persistir();
     },
     async comecarComCardapio() {
-      dados = normalizar({ ...cardapioInicial(), config: dados.config, pedidos: dados.pedidos, lancamentos: dados.lancamentos });
+      dados = normalizar({
+        ...cardapioInicial(), config: dados.config, pedidos: dados.pedidos, lancamentos: dados.lancamentos, apresentacao: dados.apresentacao,
+      });
       persistir();
     },
     async restaurarExemplo() {
@@ -156,6 +161,13 @@ async function abrirLocal() {
     },
     async criarPedidoSite(pedido) {
       return this.salvar('pedidos', pedido);
+    },
+    async lerApresentacao() {
+      return dados.apresentacao || null;
+    },
+    async salvarApresentacao(apresentacao) {
+      dados.apresentacao = limpar(apresentacao);
+      persistir();
     },
   };
 }
@@ -210,6 +222,10 @@ async function abrirNuvemPublica(fs, db) {
       const o = limpar(pedido);
       await fs.setDoc(fs.doc(db, 'pedidos', o.id), o);
       return o;
+    },
+    async lerApresentacao() {
+      const snap = await fs.getDoc(fs.doc(db, 'config', 'apresentacao'));
+      return snap.exists() ? snap.data() : null;
     },
   };
 }
@@ -367,6 +383,13 @@ async function abrirNuvemGestao(fs, db, authMod, app) {
     },
     async criarPedidoSite(pedido) {
       return this.salvar('pedidos', pedido);
+    },
+    async lerApresentacao() {
+      const snap = await fs.getDoc(fs.doc(db, 'config', 'apresentacao'));
+      return snap.exists() ? snap.data() : null;
+    },
+    async salvarApresentacao(apresentacao) {
+      gravar(fs.setDoc(fs.doc(db, 'config', 'apresentacao'), limpar(apresentacao)));
     },
   };
 }
