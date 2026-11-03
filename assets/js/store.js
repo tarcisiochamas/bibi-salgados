@@ -18,19 +18,32 @@ const CHAVE_LOCAL = 'bibi-salgados:dados:v1';
 const limpar = (obj) => JSON.parse(JSON.stringify(obj));
 
 // Frase padrão das primeiras versões do site. Quem salvou os Ajustes antes da
-// logo e dos dados do Instagram ficou com ela gravada, e com WhatsApp e
-// Instagram em branco.
+// logo e dos dados do Instagram ficou com ela gravada, junto com os outros
+// valores padrão daquela versão.
 const SLOGAN_ANTIGO = 'Salgados feitos em casa: fritos na hora, para a sua festa ou congelados para fritar quando quiser.';
+const PADRAO_ANTIGO = { slogan: SLOGAN_ANTIGO, whatsapp: '', instagram: '', pedidoMinimo: 30, antecedenciaHoras: 24 };
 
-// Junta o que está salvo com os valores padrão e troca o que sobrou da versão antiga.
+// Junta o que está salvo com os valores padrão e troca o que sobrou da versão
+// antiga. Um valor que o dono mudou continua como está.
 function completarConfig(salvo) {
   const c = { ...CONFIG_PADRAO, ...(salvo || {}) };
   if (c.slogan === SLOGAN_ANTIGO) {
-    c.slogan = CONFIG_PADRAO.slogan;
-    if (!c.whatsapp) c.whatsapp = CONFIG_PADRAO.whatsapp;
-    if (!c.instagram) c.instagram = CONFIG_PADRAO.instagram;
+    for (const [campo, antigo] of Object.entries(PADRAO_ANTIGO)) {
+      if (c[campo] === antigo) c[campo] = CONFIG_PADRAO[campo];
+    }
   }
   return c;
+}
+
+// Põe o cardápio da Bibi no lugar dos produtos. Ingredientes e fichas que o dono
+// já cadastrou ficam; a lista de ingredientes inicial só entra se não tiver nenhum.
+function comCardapioInicial(dados) {
+  const inicial = cardapioInicial();
+  return {
+    ...dados,
+    produtos: inicial.produtos,
+    ingredientes: dados.ingredientes.length ? dados.ingredientes : inicial.ingredientes,
+  };
 }
 
 function vazio() {
@@ -150,9 +163,7 @@ async function abrirLocal() {
       persistir();
     },
     async comecarComCardapio() {
-      dados = normalizar({
-        ...cardapioInicial(), config: dados.config, pedidos: dados.pedidos, lancamentos: dados.lancamentos, apresentacao: dados.apresentacao,
-      });
+      dados = normalizar(comCardapioInicial(dados));
       persistir();
     },
     async restaurarExemplo() {
@@ -211,6 +222,13 @@ async function abrirNuvemPublica(fs, db) {
   ]);
   dados.config = completarConfig(cfg.exists() ? cfg.data() : null);
   dados.produtos = prods.docs.map((d) => ({ ...d.data(), id: d.id }));
+  // Enquanto o dono não carrega o cardápio na gestão, o banco não tem nenhum
+  // produto e o site mostra o cardápio da Bibi que vem com ele. Com os produtos
+  // escondidos de propósito, o cardápio fica vazio.
+  if (!dados.produtos.length) {
+    const algum = await fs.getDocs(fs.query(fs.collection(db, 'produtos'), fs.limit(1)));
+    if (algum.empty) dados.produtos = cardapioInicial().produtos;
+  }
 
   return {
     modo: 'nuvem',
@@ -379,7 +397,7 @@ async function abrirNuvemGestao(fs, db, authMod, app) {
       await gravarConjunto(novos);
     },
     async comecarComCardapio() {
-      await gravarConjunto({ ...cardapioInicial(), config: dados.config, pedidos: dados.pedidos, lancamentos: dados.lancamentos });
+      await gravarConjunto(comCardapioInicial(dados));
     },
     async criarPedidoSite(pedido) {
       return this.salvar('pedidos', pedido);

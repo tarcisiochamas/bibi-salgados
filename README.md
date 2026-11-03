@@ -50,9 +50,17 @@ As embalagens entram na ficha técnica como os ingredientes, por receita, e fica
 
 O cliente escolhe a ocasião (aniversário, confraternização, reunião, outros) antes de enviar o pedido. Dizendo quantas pessoas vão, o site sugere quantos salgados pedir. As ocasiões e os salgados por pessoa ficam em **Ajustes → Ocasião do pedido**; com 0, a ocasião não sugere quantidade. A ocasião vai na mensagem do WhatsApp e aparece no pedido, na gestão.
 
+## Cardápio da Bibi
+
+O site já vem com o cardápio da Bibi (de 29/10/2026): 8 salgados e o churros de doce de leite, qualquer sabor a R$ 1,40 a unidade, pedidos a partir de 25 unidades (pedido mínimo de R$ 35,00). No site, o cliente escolhe de 5 em 5 unidades de cada sabor; isso muda no cadastro do produto, em **No site, de quantas em quantas**.
+
+Enquanto o banco não tem nenhum produto, a página de vendas mostra esse cardápio sozinha. Na gestão, **Carregar o cardápio da Bibi** grava os 9 sabores no banco, com as fotos, para o dono poder mudar preços, fotos e estoque. A partir daí vale o que está no banco. Fichas técnicas não vêm junto: cada uma é cadastrada com a receita de verdade.
+
 ## Fotos
 
-A foto de cada salgado (no cadastro do produto) e as fotos da página de apresentação são reduzidas no próprio navegador e guardadas dentro do Firestore. O espaço de arquivos do Firebase (Storage) pede o plano pago; assim o site continua de graça. A página de apresentação aceita até 6 fotos.
+As fotos dos 9 sabores do cardápio da Bibi ficam no próprio site, em `assets/img/salgados/` (640 × 640, feitas pela Bibi em 03/11/2026). Quando todos os salgados de uma categoria têm foto, a categoria aparece em vitrine, com as fotos grandes; senão, cada foto aparece pequena ao lado do nome.
+
+A foto que o dono põe ou troca no cadastro do produto e as fotos da página de apresentação são reduzidas no próprio navegador e guardadas dentro do Firestore. O espaço de arquivos do Firebase (Storage) pede o plano pago; assim o site continua de graça. A página de apresentação aceita até 6 fotos.
 
 ## Finanças
 
@@ -67,7 +75,7 @@ Em **Ajustes → QR code para panfleto** dá para baixar o QR code do site ou do
 3. **Authentication**: ative *E-mail/senha*, adicione o usuário do dono e, em *Configurações → Domínios autorizados*, inclua o domínio do site (ex.: `seuusuario.github.io`).
 4. **Configurações do projeto → Seus apps → Web**: registre um app e copie o `firebaseConfig` para `assets/js/config.js`.
 5. **Firestore → Regras**: cole o conteúdo de `firestore.rules`, trocando `dono@exemplo.com` pelo e-mail do dono, e publique. Sempre que `firestore.rules` mudar, publique as regras novas antes de pôr o site novo no ar. Se o site novo chegar antes, o pedido com ocasião é recusado e o site grava de novo com a ocasião nas observações.
-6. Entre na gestão com o e-mail e a senha do dono, toque em **Usar cardápio de exemplo** e ajuste nomes, preços e o WhatsApp em **Ajustes**.
+6. Entre na gestão com o e-mail e a senha do dono, toque em **Carregar o cardápio da Bibi** e confira o WhatsApp em **Ajustes**.
 
 ## Testar no computador
 
@@ -92,7 +100,8 @@ assets/js/estoque.js    reservas, baixas e lista de compras do estoque
 assets/js/pix.js        Pix copia e cola com valor (BR Code) e QR Code
 assets/js/infinitepay.js  cartão pelo site, pela página de pagamento da InfinitePay
 assets/js/vendor/       qrcode-generator (MIT), usado para desenhar o QR Code
-assets/js/dados-exemplo.js  cardápio, ingredientes e fichas de exemplo
+assets/js/dados-exemplo.js  cardápio da Bibi, ingredientes e dados de exemplo do modo local
+assets/img/salgados/    fotos dos sabores do cardápio da Bibi
 assets/js/fotos.js      reduz as fotos antes de guardar
 assets/js/loja.js       página de vendas
 assets/js/sobre.js      página de apresentação

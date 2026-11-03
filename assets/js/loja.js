@@ -78,6 +78,7 @@ function desenharLetreiro() {
   if (config.antecedenciaHoras > 0) {
     info.push(['calendario', `Encomendas com ${num(config.antecedenciaHoras)}h de antecedência`]);
   }
+  if (config.pedidoMinimo > 0) info.push(['pedidos', `Pedido mínimo ${brl(config.pedidoMinimo)}`]);
   if (config.taxaEntrega > 0) info.push(['entrega', `Entrega ${brl(config.taxaEntrega)}`]);
   else info.push(['entrega', 'Entrega grátis']);
   if (config.horario) info.push(['relogio', config.horario]);
@@ -123,8 +124,16 @@ function dicaDaCategoria(lista) {
     const minimo = Math.min(...lista.map((p) => (Number(p.passo) || 1) * 100));
     return `Vendidos por cento. Você pode pedir a partir de ${num(minimo)} unidades de cada sabor.`;
   }
+  const passo = Number(lista[0].passo) || 1;
+  if (passo > 1 && lista.every((p) => (Number(p.rende) || 1) <= 1 && Number(p.passo) === passo)) {
+    return `Escolha de ${num(passo)} em ${num(passo)} unidades de cada sabor.`;
+  }
   return '';
 }
+
+// Categoria em que todo salgado tem foto vira vitrine, com as fotos grandes.
+let vitrines = new Set();
+const categoriaDe = (p) => p.categoria || 'Cardápio';
 
 function rotuloUnidade(p) {
   const rende = Number(p.rende) || 1;
@@ -162,6 +171,7 @@ function htmlSeletor(p, qtd) {
 }
 
 function htmlItem(p) {
+  if (vitrines.has(categoriaDe(p))) return htmlCartao(p);
   const qtd = carrinho[p.id] || 0;
   const semPronto = esgotado(p);
   const encomenda = semPronto && aceitaEncomenda(p, config);
@@ -185,6 +195,25 @@ function htmlItem(p) {
     </article>`;
 }
 
+// O mesmo salgado na vitrine: foto grande em cima, nome, preço e quantidade embaixo.
+function htmlCartao(p) {
+  const qtd = carrinho[p.id] || 0;
+  const semPronto = esgotado(p);
+  const encomenda = semPronto && aceitaEncomenda(p, config);
+  const classes = ['cartao', qtd && 'no-pedido', semPronto && !encomenda && 'esgotado'];
+  return `
+    <article class="${classes.filter(Boolean).join(' ')}" data-item="${esc(p.id)}">
+      <img class="cartao-foto" src="${esc(p.foto)}" alt="" width="320" height="320" loading="lazy" decoding="async">
+      <div class="cartao-corpo">
+        <h3>${esc(p.nome)}</h3>
+        <p class="cartao-preco"><span class="item-preco">${brl(p.preco)}</span> <span class="item-unidade">${esc(rotuloUnidade(p))}</span></p>
+        ${p.descricao ? `<p class="item-desc">${esc(p.descricao)}</p>` : ''}
+        ${encomenda ? '<p class="item-aviso">Os prontos acabaram: fica sob encomenda.</p>' : ''}
+        <div class="cartao-acoes">${htmlSeletor(p, qtd)}</div>
+      </div>
+    </article>`;
+}
+
 function desenharCardapio() {
   const grupos = categorias();
   $('#categorias-lista').innerHTML = grupos
@@ -196,13 +225,15 @@ function desenharCardapio() {
     $('#cardapio').innerHTML = '<p class="vazio-cardapio">O cardápio está sendo preparado. Volte daqui a pouco!</p>';
     return;
   }
+  vitrines = new Set(grupos.filter(([, lista]) => lista.every((p) => p.foto)).map(([nome]) => nome));
   $('#cardapio').innerHTML = grupos.map(([nome, lista]) => {
     const dica = dicaDaCategoria(lista);
+    const itens = lista.map(htmlItem).join('');
     return `
       <section class="secao" id="${slug(nome)}" aria-labelledby="${slug(nome)}-titulo">
         <h2 id="${slug(nome)}-titulo">${esc(nome)}</h2>
         ${dica ? `<p class="secao-dica">${esc(dica)}</p>` : ''}
-        ${lista.map(htmlItem).join('')}
+        ${vitrines.has(nome) ? `<div class="vitrine">${itens}</div>` : itens}
       </section>`;
   }).join('');
 }

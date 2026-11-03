@@ -155,6 +155,47 @@ body::before {
   .item.com-foto { grid-template-columns: 112px minmax(0, 1fr); }
   .item-foto { width: 112px; height: 112px; }
 }
+/* Vitrine: categoria em que todo salgado tem foto. Duas colunas no celular. */
+.vitrine {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem 0.9rem;
+  margin-top: 0.75rem;
+}
+@media (min-width: 640px) {
+  .vitrine { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.75rem 1.25rem; }
+}
+.cartao { display: grid; grid-template-rows: auto 1fr; gap: 0.7rem; min-width: 0; }
+.cartao-foto {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 16px;
+  background: var(--superficie);
+}
+.cartao-corpo { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.cartao h3 { font-size: 1.025rem; font-weight: 700; line-height: 1.25; }
+.cartao-preco { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.45rem; }
+.cartao .item-desc { font-size: 0.875rem; }
+/* Botão sempre no pé do cartão, alinhado com o vizinho de nome mais comprido */
+.cartao-acoes { margin-top: auto; padding-top: 0.45rem; }
+.cartao-acoes .btn, .cartao-acoes .qtd { width: 100%; }
+.cartao-acoes .qtd { justify-content: space-between; }
+.cartao.no-pedido .cartao-foto { outline: 3px solid var(--laranja); outline-offset: 3px; }
+.cartao.no-pedido h3::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--laranja);
+  vertical-align: 0.12em;
+}
+.cartao.esgotado .cartao-foto, .cartao.esgotado h3, .cartao.esgotado .cartao-preco { opacity: 0.5; }
+
 .item-aviso { font-size: 0.875rem; font-weight: 700; color: var(--alerta); }
 .item-linha { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
 .item-linha h3 { font-size: 1.075rem; font-weight: 700; min-width: 0; }

@@ -418,8 +418,8 @@ function htmlPrimeirosPassos() {
   const d = dados();
   const passos = [];
   if (!d.produtos.length) {
-    passos.push(['O cardápio está vazio. Comece pelo cardápio de exemplo e ajuste nomes e preços, ou cadastre do zero.',
-      '<button class="btn btn-pequeno" data-acao="usar-cardapio-exemplo">Usar cardápio de exemplo</button>']);
+    passos.push(['Enquanto o cardápio não é carregado aqui, o site mostra o cardápio da Bibi que vem pronto: 9 sabores com foto, a R$ 1,40 a unidade. Carregue para poder mudar preços, fotos e estoque.',
+      '<button class="btn btn-pequeno" data-acao="usar-cardapio-exemplo">Carregar o cardápio da Bibi</button>']);
   }
   if (!config().whatsapp) {
     passos.push(['Coloque o número de WhatsApp que vai receber os pedidos do site.',
@@ -974,9 +974,9 @@ function htmlProdutos() {
     return `
       <div class="passos">
         <h2>Nenhum produto ainda</h2>
-        <p class="suave">Comece pelo cardápio de exemplo, com fichas técnicas prontas, e ajuste para o seu jeito.</p>
+        <p class="suave">Carregue o cardápio da Bibi, com os 9 sabores, as fotos e o preço de R$ 1,40 a unidade. Depois é só ajustar e cadastrar a ficha técnica de cada um.</p>
         <div class="acoes">
-          <button class="btn" data-acao="usar-cardapio-exemplo">Usar cardápio de exemplo</button>
+          <button class="btn" data-acao="usar-cardapio-exemplo">Carregar o cardápio da Bibi</button>
           <button class="btn btn-contorno" data-acao="novo-produto">Cadastrar do zero</button>
         </div>
       </div>`;
@@ -2017,6 +2017,7 @@ function abrirProduto(id) {
           </select>
         </label>
         <label class="campo" id="pr-campo-pacote" ${tipoVenda === 'pacote' ? '' : 'hidden'}><span>Salgados no pacote</span><input name="rendePacote" id="pr-pacote" inputmode="numeric" value="${tipoVenda === 'pacote' ? num(prod.rende) : '25'}"></label>
+        <label class="campo" id="pr-campo-passo" ${tipoVenda === 'unidade' ? '' : 'hidden'}><span>De quantas em quantas</span><input name="passoUnidade" id="pr-passo" inputmode="numeric" value="${tipoVenda === 'unidade' ? num(Math.max(1, Math.round(Number(prod.passo) || 1))) : '1'}"></label>
         <label class="campo campo-largo"><span>Descrição</span><textarea name="descricao" id="pr-descricao" rows="2" maxlength="240">${esc(prod.descricao)}</textarea></label>
       </div>
       <div class="foto-produto">
@@ -2024,7 +2025,7 @@ function abrirProduto(id) {
         <div class="foto-acoes">
           <label class="btn btn-contorno btn-pequeno">${icone('camera')} <span id="pr-foto-rotulo">${prod.foto ? 'Trocar foto' : 'Pôr foto'}</span><input type="file" name="foto-arquivo" accept="image/*" hidden></label>
           <button type="button" class="btn btn-contorno btn-pequeno" id="pr-foto-tirar" data-j="tirar-foto" ${prod.foto ? '' : 'hidden'}>${icone('lixeira')} Tirar foto</button>
-          <small class="suave">Aparece ao lado do nome no cardápio.</small>
+          <small class="suave">Aparece no cardápio. Quando todos os salgados da categoria têm foto, as fotos aparecem grandes.</small>
         </div>
       </div>
       <label class="check" id="pr-campo-meio" ${tipoVenda === 'cento' ? '' : 'hidden'}><input type="checkbox" name="meioCento" ${Number(prod.passo) < 1 ? 'checked' : ''}> Aceita meio cento (50 un)</label>
@@ -2069,6 +2070,8 @@ function abrirProduto(id) {
     } else if (tipo === 'pacote') {
       rende = Math.max(2, Math.round(lerNumero(valor('rendePacote'))) || 2);
       unidade = `pacote com ${rende}`;
+    } else {
+      passo = Math.max(1, Math.round(lerNumero(valor('passoUnidade'))) || 1);
     }
     return {
       ...prod,
@@ -2175,6 +2178,7 @@ function abrirProduto(id) {
       }
       if (nome === 'tipoVenda' || nome === 'rendePacote') {
         $('#pr-campo-pacote').hidden = valor('tipoVenda') !== 'pacote';
+        $('#pr-campo-passo').hidden = valor('tipoVenda') !== 'unidade';
         $('#pr-campo-meio').hidden = valor('tipoVenda') !== 'cento';
         const sufixo = sufixoVenda(lerProduto());
         document.querySelectorAll('.pr-sufixo').forEach((el) => { el.textContent = sufixo; });
@@ -2754,7 +2758,7 @@ document.addEventListener('click', async (e) => {
       break;
     case 'usar-cardapio-exemplo':
       await store.comecarComCardapio();
-      aviso('Cardápio de exemplo carregado');
+      aviso('Cardápio da Bibi carregado');
       break;
     case 'apagar-exemplos': await apagarExemplos(); break;
     case 'baixar-backup': baixarBackup(); break;
