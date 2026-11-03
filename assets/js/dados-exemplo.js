@@ -1,6 +1,7 @@
-// Dados iniciais: um cardápio de exemplo com fichas técnicas e preços de
-// mercado (2026), mais alguns pedidos e lançamentos marcados como exemplo
-// para a gestão abrir mostrando como funciona.
+// Dados iniciais: o cardápio da Bibi com as fotos dos salgados e uma lista de
+// ingredientes com preços de mercado (2026). No modo local entram também
+// fichas técnicas, pedidos e lançamentos marcados como exemplo, para a gestão
+// abrir mostrando como funciona.
 
 import { somarDias, hojeISO } from './util.js';
 
@@ -13,7 +14,8 @@ export const CONFIG_PADRAO = {
   horario: 'Terça a sábado, das 9h às 19h',
   areaEntrega: 'Entregamos em toda a cidade.',
   taxaEntrega: 8,
-  pedidoMinimo: 30,
+  // Pedidos a partir de 25 salgados, a R$ 1,40 cada.
+  pedidoMinimo: 35,
   // Sem prazo mínimo por enquanto: o cliente pode pedir para o mesmo dia.
   antecedenciaHoras: 0,
   aceitandoPedidos: true,
@@ -80,46 +82,33 @@ const embalagens = [
   id: `emb-${id}`, nome, unidade: 'un', qtdEmbalagem, precoEmbalagem, embalagem: true,
 }));
 
+// Cardápio da Bibi (29/10/2026): qualquer sabor a R$ 1,40 a unidade, pedidos a
+// partir de 25 unidades. No site o cliente escolhe de 5 em 5 de cada sabor.
+// As fotos foram feitas pela Bibi (03/11/2026).
 const produtos = [
-  ['coxinha', 'Coxinha de frango com requeijão', 'Salgados fritos',
-    'Massa macia e recheio de frango desfiado temperado com requeijão cremoso.', 7, 'unidade', 1, 1],
-  ['kibe', 'Kibe recheado com queijo', 'Salgados fritos',
-    'Kibe de carne com hortelã e muçarela derretida por dentro.', 7, 'unidade', 1, 1],
-  ['risole', 'Risole de presunto e queijo', 'Salgados fritos',
-    'Massa fininha e crocante, recheio cremoso de presunto e muçarela.', 6.5, 'unidade', 1, 1],
-  ['enroladinho', 'Enroladinho de salsicha', 'Salgados fritos',
-    'Salsicha inteira envolvida em massa dourada.', 6, 'unidade', 1, 1],
-  ['bolinha', 'Bolinha de queijo', 'Salgados fritos',
-    'Casquinha crocante e muçarela que estica.', 6.5, 'unidade', 1, 1],
-  ['mini-coxinha', 'Mini coxinha de frango', 'Para festas',
-    'O clássico das festas, no tamanho de uma mordida.', 110, 'cento', 100, 0.5],
-  ['mini-kibe', 'Mini kibe', 'Para festas',
-    'Kibe de carne com hortelã, sequinho e bem temperado.', 100, 'cento', 100, 0.5],
-  ['mini-risole', 'Mini risole de presunto e queijo', 'Para festas',
-    'Meia-lua crocante com recheio cremoso.', 105, 'cento', 100, 0.5],
-  ['mini-bolinha', 'Mini bolinha de queijo', 'Para festas',
-    'Muçarela derretida em uma casquinha dourada.', 125, 'cento', 100, 0.5],
-  ['mini-enroladinho', 'Mini enroladinho de salsicha', 'Para festas',
-    'O favorito das crianças.', 95, 'cento', 100, 0.5],
-  ['mini-coxinha-congelada', 'Mini coxinha congelada', 'Congelados',
-    'Pacote com 50 unidades para fritar em casa. Dura até 3 meses no freezer.', 55, 'pacote com 50', 50, 1],
-  ['mini-kibe-congelado', 'Mini kibe congelado', 'Congelados',
-    'Pacote com 50 unidades para fritar em casa. Dura até 3 meses no freezer.', 50, 'pacote com 50', 50, 1],
-].map(([id, nome, categoria, descricao, preco, unidade, rende, passo], i) => ({
-  id, nome, categoria, descricao, preco, unidade, rende, passo, ativo: true, ordem: i + 1,
+  ['bolinha-queijo', 'Bolinha de queijo', 'Salgados', ''],
+  ['balaozinho-carne', 'Balãozinho de carne', 'Salgados', ''],
+  ['coxinha-frango', 'Coxinha de frango', 'Salgados', ''],
+  ['bolinha-milho', 'Bolinha de milho com Catupiry', 'Salgados', ''],
+  ['charutinho', 'Charutinho de presunto e queijo', 'Salgados', ''],
+  ['croquete-calabresa', 'Croquete de calabresa', 'Salgados', ''],
+  ['kibe', 'Kibe', 'Salgados', 'Carne de primeira, temperada com especiarias, numa receita de família.'],
+  ['salsichinha', 'Salsichinha', 'Salgados', ''],
+  ['churros', 'Churros de doce de leite', 'Doces', 'Crocante por fora, macio por dentro e recheado com doce de leite.'],
+].map(([id, nome, categoria, descricao], i) => ({
+  id, nome, categoria, descricao, preco: 1.4, unidade: 'unidade', rende: 1, passo: 5,
+  foto: `assets/img/salgados/${id}.jpg`, ativo: true, ordem: i + 1,
 }));
 
 const massaCoxinha = { 'ing-farinha': 500, 'ing-leite': 500, 'ing-margarina': 50, 'ing-caldo': 2 };
 const empanar = (rosca) => ({ 'ing-ovos': 2, 'ing-rosca': rosca });
 
-const fichas = [
-  ['coxinha', 22, { ...massaCoxinha, 'ing-frango': 700, 'ing-requeijao': 250, 'ing-cebola': 150, ...empanar(400), 'emb-saquinho': 22 }],
-  ['mini-coxinha', 100, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300), 'emb-caixa-cento': 1 }],
-  ['mini-coxinha-congelada', 100, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300), 'emb-saco-congelado': 2 }],
-  ['kibe', 20, { 'ing-trigo-kibe': 400, 'ing-carne': 600, 'ing-mucarela': 300, 'ing-cebola': 150, 'ing-hortela': 1, 'emb-saquinho': 20 }],
-  ['mini-kibe', 100, { 'ing-trigo-kibe': 400, 'ing-carne': 500, 'ing-cebola': 150, 'ing-hortela': 1, 'emb-caixa-cento': 1 }],
-  ['bolinha', 25, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 600, ...empanar(400), 'emb-saquinho': 25 }],
-  ['mini-bolinha', 100, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 500, ...empanar(300), 'emb-caixa-cento': 1 }],
+// Fichas técnicas de exemplo, só no modo local. As de verdade o dono cadastra
+// com a receita dele.
+const fichasExemplo = [
+  ['coxinha-frango', 100, { ...massaCoxinha, 'ing-frango': 500, 'ing-requeijao': 150, 'ing-cebola': 150, ...empanar(300), 'emb-caixa-cento': 1 }],
+  ['kibe', 100, { 'ing-trigo-kibe': 400, 'ing-carne': 500, 'ing-cebola': 150, 'ing-hortela': 1, 'emb-caixa-cento': 1 }],
+  ['bolinha-queijo', 100, { ...massaCoxinha, 'ing-caldo': 1, 'ing-mucarela': 500, ...empanar(300), 'emb-caixa-cento': 1 }],
 ].map(([id, rendimento, itens]) => ({
   id,
   rendimento,
@@ -134,7 +123,7 @@ export function cardapioInicial() {
     config: { ...CONFIG_PADRAO },
     produtos: structuredClone(produtos),
     ingredientes: structuredClone([...ingredientes, ...embalagens]),
-    fichas: structuredClone(fichas),
+    fichas: [],
   };
 }
 
@@ -163,58 +152,58 @@ export function dadosExemplo(hoje = hojeISO()) {
     pedido({
       id: 'ex-1', codigo: 'A3F7', criadoEm: criado(-2), origem: 'WhatsApp', status: 'producao',
       cliente: { nome: 'Ana Paula Ribeiro', telefone: '' }, entrega: retirada,
-      dataEntrega: dia(0), hora: '15:00', itens: [item('mini-coxinha', 1), item('mini-kibe', 0.5)],
+      dataEntrega: dia(0), hora: '15:00', itens: [item('coxinha-frango', 50), item('kibe', 25)],
       pagamento: pago('Pix', -2), obs: 'Aniversário de 6 anos. Separar em duas caixas.',
     }),
     pedido({
       id: 'ex-2', codigo: 'K8M2', criadoEm: criado(-1), origem: 'Instagram', status: 'confirmado',
       cliente: { nome: 'Marcos Vinícius', telefone: '' },
       entrega: { tipo: 'entrega', endereco: 'Rua Bernardino de Campos, 1200 - Centro' },
-      dataEntrega: dia(0), hora: '19:00', itens: [item('coxinha', 6), item('kibe', 4)],
+      dataEntrega: dia(0), hora: '19:00', itens: [item('coxinha-frango', 30), item('kibe', 20)],
       pagamento: aPagar('Dinheiro'), obs: 'Troco para R$ 100.',
     }),
     pedido({
       id: 'ex-3', codigo: 'Q2ZD', criadoEm: criado(0), origem: 'Site', status: 'novo',
       cliente: { nome: 'Escritório Contábil Nogueira', telefone: '' },
       entrega: { tipo: 'entrega', endereco: 'Av. Alberto Andaló, 3000, sala 12 - Centro' },
-      dataEntrega: dia(1), hora: '10:00', itens: [item('mini-coxinha', 1), item('mini-bolinha', 1)],
+      dataEntrega: dia(1), hora: '10:00', itens: [item('coxinha-frango', 50), item('bolinha-queijo', 50)],
       pagamento: aPagar('Pix antecipado'), obs: 'Pode mandar guardanapos?',
     }),
     pedido({
       id: 'ex-4', codigo: 'R5TN', criadoEm: criado(-3), origem: 'WhatsApp', status: 'confirmado',
       cliente: { nome: 'Renata (festa da Clara)', telefone: '' }, entrega: retirada,
       dataEntrega: dia(1), hora: '17:30',
-      itens: [item('mini-coxinha', 1.5), item('mini-kibe', 1), item('mini-enroladinho', 0.5)],
+      itens: [item('coxinha-frango', 75), item('kibe', 50), item('salsichinha', 25)],
       pagamento: aPagar('Pix'),
     }),
     pedido({
       id: 'ex-9', codigo: 'P6VY', criadoEm: criado(0), origem: 'Site', status: 'novo',
       cliente: { nome: 'Patrícia Gomes', telefone: '' }, entrega: retirada,
-      dataEntrega: dia(2), hora: '10:30', itens: [item('mini-coxinha-congelada', 2)],
+      dataEntrega: dia(2), hora: '10:30', itens: [item('churros', 25), item('charutinho', 25)],
       pagamento: aPagar('Pix'),
     }),
     pedido({
       id: 'ex-5', codigo: 'J4WB', criadoEm: criado(-2), origem: 'WhatsApp', status: 'entregue',
       cliente: { nome: 'Juliana Castro', telefone: '' },
       entrega: { tipo: 'entrega', endereco: 'Rua Siqueira Campos, 455 - Boa Vista' },
-      dataEntrega: dia(-1), hora: '12:00', itens: [item('coxinha', 10)], pagamento: pago('Pix', -1),
+      dataEntrega: dia(-1), hora: '12:00', itens: [item('coxinha-frango', 40)], pagamento: pago('Pix', -1),
     }),
     pedido({
       id: 'ex-6', codigo: 'C9PX', criadoEm: criado(-6), origem: 'Indicação', status: 'entregue',
       cliente: { nome: 'Carla Mendes', telefone: '' }, entrega: retirada,
-      dataEntrega: dia(-3), hora: '16:00', itens: [item('mini-coxinha', 2), item('mini-bolinha', 1)],
+      dataEntrega: dia(-3), hora: '16:00', itens: [item('coxinha-frango', 100), item('bolinha-queijo', 50)],
       pagamento: pago('Pix', -3),
     }),
     pedido({
       id: 'ex-7', codigo: 'L7HS', criadoEm: criado(-6), origem: 'Instagram', status: 'entregue',
       cliente: { nome: 'Lucas Oliveira', telefone: '' }, entrega: retirada,
-      dataEntrega: dia(-6), hora: '11:00', itens: [item('mini-coxinha-congelada', 2)],
+      dataEntrega: dia(-6), hora: '11:00', itens: [item('charutinho', 30)],
       pagamento: pago('Dinheiro', -6),
     }),
     pedido({
       id: 'ex-8', codigo: 'F3GE', criadoEm: criado(-9), origem: 'WhatsApp', status: 'cancelado',
       cliente: { nome: 'Fernanda Lima', telefone: '' }, entrega: retirada,
-      dataEntrega: dia(-8), hora: '18:00', itens: [item('coxinha', 5)], pagamento: aPagar('Pix'),
+      dataEntrega: dia(-8), hora: '18:00', itens: [item('coxinha-frango', 25)], pagamento: aPagar('Pix'),
       obs: 'Cliente desmarcou.',
     }),
   ];
@@ -231,10 +220,11 @@ export function dadosExemplo(hoje = hojeISO()) {
     lanc(6, -1, 'saida', RETIRADA, 'Retirada da semana', 300),
   ];
 
-  // Estoque de exemplo: congelados prontos no freezer e quase tudo já contado
+  // Estoque de exemplo: churros prontos esperando venda e quase tudo já contado
   // (quantidade, mínimo). Presunto e salsicha ficam sem contagem.
   const base = cardapioInicial();
-  const prontos = { 'mini-coxinha-congelada': [6, 4], 'mini-kibe-congelado': [0, 3] };
+  base.fichas = structuredClone(fichasExemplo);
+  const prontos = { churros: [40, 25] };
   for (const p of base.produtos) {
     if (prontos[p.id]) Object.assign(p, { controlarEstoque: true, estoque: prontos[p.id][0], estoqueMinimo: prontos[p.id][1] });
   }
