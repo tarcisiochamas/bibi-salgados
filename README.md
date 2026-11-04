@@ -68,11 +68,15 @@ Além do resumo do mês, a tela mostra o **DRE** (demonstrativo de resultado): v
 
 Em **Ajustes → QR code para panfleto** dá para baixar o QR code do site ou do WhatsApp, em PNG grande, para imprimir.
 
+## Endereço do site
+
+O site atende em **https://bibisalgados.com**, domínio comprado na Hostinger em 03/11/2026, na conta do Tarcisio (dá para passar para a conta da Bibi depois). O arquivo `CNAME` diz ao GitHub Pages qual é o domínio. O DNS do domínio, na Hostinger, aponta para o GitHub: registros A de `@` para 185.199.108.153, 185.199.109.153, 185.199.110.153 e 185.199.111.153, e CNAME de `www` para `tarcisiochamas.github.io`. O endereço antigo, `tarcisiochamas.github.io/bibi-salgados`, leva sozinho para o novo.
+
 ## Ligar o Firebase
 
 1. Em [console.firebase.google.com](https://console.firebase.google.com), crie um projeto.
 2. **Firestore Database**: crie o banco no modo de produção, local `southamerica-east1`.
-3. **Authentication**: ative *E-mail/senha*, adicione o usuário do dono e, em *Configurações → Domínios autorizados*, inclua o domínio do site (ex.: `seuusuario.github.io`).
+3. **Authentication**: ative *E-mail/senha*, adicione o usuário do dono e, em *Configurações → Domínios autorizados*, inclua os domínios do site (ex.: `seuusuario.github.io` e `bibisalgados.com`).
 4. **Configurações do projeto → Seus apps → Web**: registre um app e copie o `firebaseConfig` para `assets/js/config.js`.
 5. **Firestore → Regras**: cole o conteúdo de `firestore.rules`, trocando `dono@exemplo.com` pelo e-mail do dono, e publique. Sempre que `firestore.rules` mudar, publique as regras novas antes de pôr o site novo no ar. Se o site novo chegar antes, o pedido com ocasião é recusado e o site grava de novo com a ocasião nas observações.
 6. Entre na gestão com o e-mail e a senha do dono, toque em **Carregar o cardápio da Bibi** e confira o WhatsApp em **Ajustes**.
