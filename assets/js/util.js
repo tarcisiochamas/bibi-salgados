@@ -15,12 +15,14 @@ export function pct(fracao) {
   return fracao == null || !isFinite(fracao) ? '–' : `${Math.round(fracao * 100)}%`;
 }
 
-// Lê "1.234,56", "12,5" ou "12.5" e devolve número.
+// Lê "1.234,56", "12,5", "12.5" ou "1.200" e devolve número. Ponto a cada três
+// algarismos, sem vírgula, é separador de milhar: "1.200" é mil e duzentos.
 export function lerNumero(texto) {
   if (typeof texto === 'number') return texto;
   let s = String(texto ?? '').trim().replace(/[^\d,.-]/g, '');
   if (!s) return 0;
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   const n = parseFloat(s);
   return isFinite(n) ? n : 0;
 }
@@ -90,10 +92,12 @@ export function dataCurta(iso) {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
 }
 
-// "sábado, 08/11"
+// "sábado, 08/11"; de outro ano, "sábado, 08/11/2027".
 export function dataComDia(iso) {
   if (!iso) return '';
-  return `${DIAS[deISO(iso).getDay()]}, ${dataCurta(iso)}`;
+  const d = deISO(iso);
+  const ano = d.getFullYear() === new Date().getFullYear() ? '' : `/${d.getFullYear()}`;
+  return `${DIAS[d.getDay()]}, ${dataCurta(iso)}${ano}`;
 }
 
 // "Hoje", "Amanhã", "Ontem" ou "sábado, 08/11"
@@ -130,15 +134,21 @@ export function soDigitos(texto) {
   return String(texto ?? '').replace(/\D/g, '');
 }
 
-// Aceita "(17) 99123-4567", "17991234567" ou "+55 17 99123-4567" e devolve "5517991234567".
+// Aceita "(17) 99123-4567", "17991234567", "+55 17 99123-4567", "017 99123-4567"
+// (com o 0 do interurbano) ou "0 15 17 99123-4567" (com a operadora) e devolve
+// "5517991234567".
 export function telefoneWhats(texto) {
-  const d = soDigitos(texto);
+  let d = soDigitos(texto);
+  if (d.startsWith('0')) {
+    d = d.replace(/^0+/, '');
+    if (d.length === 12 || d.length === 13) d = d.slice(2);
+  }
   if (d.length === 10 || d.length === 11) return '55' + d;
   return d;
 }
 
 export function telefoneBonito(texto) {
-  let d = soDigitos(texto);
+  let d = telefoneWhats(texto);
   if (d.startsWith('55') && d.length > 11) d = d.slice(2);
   if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;

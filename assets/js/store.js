@@ -194,7 +194,9 @@ async function abrirNuvem({ publico }) {
     publico ? Promise.resolve(null) : import(`${FIREBASE_SDK}/firebase-auth.js`),
   ]);
 
-  const app = appMod.initializeApp(FIREBASE_CONFIG);
+  // Reaproveita o app numa nova tentativa (a página de vendas tenta de novo
+  // quando o banco não responde).
+  const app = appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(FIREBASE_CONFIG);
   let db;
   if (publico) {
     db = fs.getFirestore(app);
