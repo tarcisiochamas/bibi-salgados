@@ -12,7 +12,7 @@ import {
   custoDoProduto, analisarPreco, totaisPedido, resumoItens, producaoDasDatas, ingredientesDaProducao,
   quantidadeLegivel, resumoDoMes, aReceber, clientesDosPedidos, dataDoRecebimento,
   formasAntecipadas, aguardandoPagamento, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
-  textoOcasiao, textoEncomenda, dreDoMes,
+  textoOcasiao, textoEncomenda, dreDoMes, minutosDePreparo, textoDuracao,
 } from './calculos.js';
 import { lerChavePix, codigoPix } from './pix.js';
 import { lerInfiniteTag, criarCobranca, explicarErro } from './infinitepay.js';
@@ -1211,6 +1211,8 @@ function telaAjustes() {
           <label class="campo"><span>Taxa de entrega</span><span class="com-prefixo"><span>R$</span><input name="taxaEntrega" id="aj-taxa" inputmode="decimal" value="${dinheiroInput(c.taxaEntrega)}"></span></label>
           <label class="campo"><span>Pedido mínimo</span><span class="com-prefixo"><span>R$</span><input name="pedidoMinimo" id="aj-minimo" inputmode="decimal" value="${dinheiroInput(c.pedidoMinimo)}"></span></label>
           <label class="campo"><span>Antecedência mínima</span><span class="com-sufixo"><input name="antecedenciaHoras" id="aj-antecedencia" inputmode="numeric" value="${num(c.antecedenciaHoras)}"><span>horas</span></span><small>0 aceita pedido para o mesmo dia.</small></label>
+          <label class="campo"><span>Tempo para fritar</span><span class="com-sufixo"><input name="preparoHoras" id="aj-preparo-horas" inputmode="decimal" value="${num(c.preparoHoras)}"><span>horas</span></span><small id="aj-preparo-dica">${esc(dicaPreparo(c.preparoHoras, c.preparoACada))}</small></label>
+          <label class="campo"><span>A cada</span><span class="com-sufixo sufixo-largo"><input name="preparoACada" id="aj-preparo-cada" inputmode="numeric" value="${num(c.preparoACada)}"><span>salgados</span></span><small>O cliente só escolhe horário depois desse tempo. 0 desliga.</small></label>
         </div>
         <fieldset class="secao-janela" style="border:0;padding:0;margin:0">
           <legend class="rotulo" style="margin-bottom:.6rem">Formas de pagamento</legend>
@@ -1309,6 +1311,14 @@ function telaAjustes() {
     </section>`;
 }
 
+// "25 salgados: 1 hora · 100: 2 horas · 300: 6 horas"
+function dicaPreparo(horas, aCada) {
+  const c = { preparoHoras: lerNumero(horas), preparoACada: lerNumero(aCada) };
+  if (!minutosDePreparo(1, c)) return 'Desligado: vale só a antecedência.';
+  const [a, b, d] = [25, 100, 300].map((n) => textoDuracao(minutosDePreparo(n, c)));
+  return `25 salgados: ${a} · 100: ${b} · 300: ${d}`;
+}
+
 function dicaChavePix(texto) {
   const padrao = 'Aparece para o cliente depois que ele monta o pedido.';
   if (!String(texto || '').trim()) return padrao;
@@ -1345,6 +1355,7 @@ function atualizarAjustesPagamento() {
     chavePix: f.chavePix.value,
   };
   $('#aj-pix-dica').textContent = dicaChavePix(c.chavePix);
+  $('#aj-preparo-dica').textContent = dicaPreparo(f.preparoHoras.value, f.preparoACada.value);
   $('#aj-tag-dica').textContent = dicaInfiniteTag(f.infiniteTag.value);
   $('#aj-cartao').hidden = !c.cobrarAntesCartao;
   $('#aj-cobrar-formas').hidden = !c.cobrarAntes;
@@ -1393,6 +1404,8 @@ function salvarAjustes() {
     taxaEntrega: lerNumero(f.taxaEntrega.value),
     pedidoMinimo: lerNumero(f.pedidoMinimo.value),
     antecedenciaHoras: Math.max(0, Math.round(lerNumero(f.antecedenciaHoras.value))),
+    preparoHoras: Math.max(0, lerNumero(f.preparoHoras.value)),
+    preparoACada: Math.max(0, Math.round(lerNumero(f.preparoACada.value))),
     formasPagamento: [...formas, ...outras],
     chavePix: f.chavePix.value.trim(),
     cobrarAntes: f.cobrarAntes.checked,

@@ -2,12 +2,13 @@
 
 import { abrirStore } from './store.js';
 import {
-  brl, esc, num, linkWhats, telefoneBonito, telefoneWhats, codigoPedido, isoLocal,
-  dataComDia, lerLocal, gravarLocal, copiarTexto,
+  brl, esc, num, linkWhats, telefoneBonito, telefoneWhats, codigoPedido, isoLocal, horaLocal,
+  dataComDia, dataRelativa, lerLocal, gravarLocal, copiarTexto,
 } from './util.js';
 import {
   textoQtd, totaisPedido, formasAntecipadas, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
   textoEncomenda, textoOcasiao, sugestaoDeSalgados, unidadesDoPedido,
+  minutosDePreparo, primeiroHorario, textoDuracao,
 } from './calculos.js';
 import { lerChavePix, codigoPix, desenharQrPix } from './pix.js';
 import { criarCobranca, lerRetorno, conferirPagamento } from './infinitepay.js';
@@ -317,9 +318,36 @@ function desenharBarra() {
 
 // ---------- Finalizar pedido ----------
 
-function dataMinima() {
-  const horas = Number(config.antecedenciaHoras) || 0;
-  return isoLocal(new Date(Date.now() + horas * 3600 * 1000));
+// O primeiro dia e horário que dá para pedir, pelos salgados do carrinho.
+function prazoMinimo() {
+  const quando = primeiroHorario(unidadesDoPedido(itensDoCarrinho()), config);
+  return { data: isoLocal(quando), hora: horaLocal(quando) };
+}
+
+// "hoje às 16:45", "amanhã às 04:45" ou "quarta, 05/11 às 10:00"
+function textoPrazo(prazo) {
+  return `${dataRelativa(prazo.data).toLowerCase()} às ${prazo.hora}`;
+}
+
+// Por que o primeiro horário é aquele; vazio quando não há regra nenhuma.
+function motivoPrazo(unidades) {
+  const preparo = minutosDePreparo(unidades, config);
+  const antecedencia = (Number(config.antecedenciaHoras) || 0) * 60;
+  if (preparo > 0 && preparo >= antecedencia) {
+    return `Para ${num(unidades)} salgados, a gente precisa de ${textoDuracao(preparo)} para preparar`;
+  }
+  if (antecedencia > 0) return `Encomendas com ${num(config.antecedenciaHoras)}h de antecedência`;
+  return '';
+}
+
+// Dia ou horário antes do primeiro possível, ou faltando.
+function errosDoPrazo(form) {
+  const prazo = prazoMinimo();
+  if (!form.data) return { data: 'Escolha o dia.' };
+  if (form.data < prazo.data) return { data: `O primeiro dia possível é ${dataRelativa(prazo.data).toLowerCase()}.` };
+  if (!form.hora) return { hora: 'Escolha o horário.' };
+  if (form.data === prazo.data && form.hora < prazo.hora) return { hora: `Escolha a partir das ${prazo.hora}.` };
+  return {};
 }
 
 function lerFormulario() {
@@ -416,8 +444,7 @@ function validar(form, pedido) {
   if (ocasioesDoSite().length && !form.ocasiao) erros.ocasiao = 'Escolha a ocasião do pedido.';
   if (!form.nome) erros.nome = 'Diga seu nome para a gente saber de quem é o pedido.';
   if (form.tipo === 'entrega' && form.endereco.length < 6) erros.endereco = 'Informe rua, número e bairro.';
-  if (!form.data) erros.data = 'Escolha o dia.';
-  else if (form.data < dataMinima()) erros.data = `O primeiro dia disponível é ${dataComDia(dataMinima())}.`;
+  Object.assign(erros, errosDoPrazo(form));
   if (pedido.subtotal < (Number(config.pedidoMinimo) || 0)) {
     erros.itens = `O pedido mínimo é de ${brl(config.pedidoMinimo)}.`;
   }
@@ -439,9 +466,10 @@ function desenharFinalizar() {
   const formas = antecipadas.length ? antecipadas
     : (config.formasPagamento?.length ? config.formasPagamento : ['Pix', 'Dinheiro']);
   const anterior = $('#form-pedido').elements.nome ? lerFormulario() : null;
+  const prazo = prazoMinimo();
   const form = anterior || {
     nome: salvo.nome || '', telefone: salvo.telefone || '', tipo: salvo.tipo || 'retirada',
-    endereco: salvo.endereco || '', data: dataMinima(), hora: '', forma: formas[0], obs: '',
+    endereco: salvo.endereco || '', data: prazo.data, hora: '', forma: formas[0], obs: '',
     ocasiao: '', pessoas: '',
   };
   if (!formas.includes(form.forma)) form.forma = formas[0];
@@ -485,13 +513,15 @@ function desenharFinalizar() {
       <h3>Para quando?</h3>
       <div class="duas-colunas">
         <label class="campo"><span>Dia</span>
-          <input type="date" name="data" id="data" min="${dataMinima()}" value="${esc(form.data || dataMinima())}">
+          <input type="date" name="data" id="data" min="${prazo.data}" value="${esc(form.data || prazo.data)}">
           <span class="erro-campo" data-erro="data" hidden></span>
         </label>
         <label class="campo"><span>Horário</span>
           <input type="time" name="hora" id="hora" value="${esc(form.hora)}" step="900">
+          <span class="erro-campo" data-erro="hora" hidden></span>
         </label>
       </div>
+      <p class="sugestao" id="prazo" aria-live="polite" hidden></p>
       ${config.horario ? `<small class="suave">${esc(config.horario)}</small>` : ''}
     </div>
 
@@ -564,6 +594,28 @@ function atualizarFinalizar() {
     botao.href = config.whatsapp ? linkWhats(config.whatsapp, montarMensagem(pedido)) : '#';
   }
   desenharSugestao(pedido);
+  desenharPrazo(form, pedido);
+}
+
+// "Para 300 salgados, a gente precisa de 6 horas para preparar: o primeiro
+// horário é hoje às 16:45." Muda com os salgados do pedido; com dia e horário
+// escolhidos, já avisa se não dá.
+function desenharPrazo(form, pedido) {
+  const el = $('#prazo');
+  if (!el) return;
+  const prazo = prazoMinimo();
+  $('#data').min = prazo.data;
+  const motivo = motivoPrazo(unidadesDoPedido(pedido.itens));
+  el.hidden = !motivo;
+  if (motivo) el.innerHTML = `${esc(motivo)}: o primeiro horário é <strong>${esc(textoPrazo(prazo))}</strong>.`;
+  if (!form.data || !form.hora) return;
+  const erros = errosDoPrazo(form);
+  for (const nome of ['data', 'hora']) {
+    const msg = document.querySelector(`#form-pedido [data-erro="${nome}"]`);
+    msg.hidden = !erros[nome];
+    msg.textContent = erros[nome] || '';
+    $('#form-pedido').elements[nome].classList.toggle('campo-invalido', Boolean(erros[nome]));
+  }
 }
 
 // "Para 30 pessoas, a gente sugere uns 360 salgados", pela ocasião escolhida.
@@ -586,7 +638,7 @@ function mostrarErros(erros) {
     el.hidden = !msg;
     el.textContent = msg || '';
   });
-  for (const nome of ['nome', 'endereco', 'data']) {
+  for (const nome of ['nome', 'endereco', 'data', 'hora']) {
     const campo = $('#form-pedido').elements[nome];
     if (campo) campo.classList.toggle('campo-invalido', Boolean(erros[nome]));
   }

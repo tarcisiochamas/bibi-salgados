@@ -18,6 +18,10 @@ export const CONFIG_PADRAO = {
   pedidoMinimo: 35,
   // Sem prazo mínimo por enquanto: o cliente pode pedir para o mesmo dia.
   antecedenciaHoras: 0,
+  // Mas o horário respeita o tempo de fritar: 1 hora a cada 50 salgados, nunca
+  // menos de 1 hora (o Evandro, em 03/11/2026: 300 não dá para fritar em 10 minutos).
+  preparoHoras: 1,
+  preparoACada: 50,
   aceitandoPedidos: true,
   // Quando um salgado de estoque acaba, o cliente ainda pode encomendar.
   encomendaQuandoEsgotar: true,
