@@ -56,6 +56,11 @@ export function isoLocal(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// "14:30"
+export function horaLocal(d) {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function hojeISO() {
   return isoLocal(new Date());
 }

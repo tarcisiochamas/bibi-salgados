@@ -135,6 +135,35 @@ export function sugestaoDeSalgados(ocasiao, ocasioes) {
   return { porPessoa, pessoas, total: porPessoa * pessoas };
 }
 
+// ---------- Prazo do pedido ----------
+
+// Minutos que a cozinha precisa para o pedido: "1 hora a cada 50 salgados",
+// proporcional e nunca menos que essa 1 hora, nos próximos 15 minutos.
+// Zero em qualquer dos dois desliga.
+export function minutosDePreparo(unidades, config) {
+  const horas = Number(config?.preparoHoras) || 0;
+  const aCada = Number(config?.preparoACada) || 0;
+  if (!(horas > 0) || !(aCada > 0) || !(unidades > 0)) return 0;
+  return Math.ceil(Math.max(1, unidades / aCada) * horas * 4 - 1e-9) * 15;
+}
+
+// O primeiro horário que o cliente pode escolher: agora mais a antecedência
+// mínima ou o tempo de preparo, o que for maior, nos próximos 15 minutos.
+export function primeiroHorario(unidades, config, agora = new Date()) {
+  const minutos = Math.max((Number(config?.antecedenciaHoras) || 0) * 60, minutosDePreparo(unidades, config));
+  const quinze = 15 * 60000;
+  return new Date(Math.ceil((agora.getTime() + minutos * 60000) / quinze) * quinze);
+}
+
+// "45 minutos", "1 hora", "1h30", "6 horas"
+export function textoDuracao(minutos) {
+  const h = Math.floor(minutos / 60);
+  const m = Math.round(minutos % 60);
+  if (!h) return `${m} minutos`;
+  if (!m) return h === 1 ? '1 hora' : `${h} horas`;
+  return `${h}h${String(m).padStart(2, '0')}`;
+}
+
 // Soma por produto o que precisa ser produzido para os pedidos das datas pedidas.
 export function producaoDasDatas(pedidos, datas) {
   const alvo = new Set(datas);

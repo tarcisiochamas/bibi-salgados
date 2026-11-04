@@ -50,6 +50,10 @@ As embalagens entram na ficha técnica como os ingredientes, por receita, e fica
 
 O cliente escolhe a ocasião (aniversário, confraternização, reunião, outros) antes de enviar o pedido. Dizendo quantas pessoas vão, o site sugere quantos salgados pedir. As ocasiões e os salgados por pessoa ficam em **Ajustes → Ocasião do pedido**; com 0, a ocasião não sugere quantidade. A ocasião vai na mensagem do WhatsApp e aparece no pedido, na gestão.
 
+## Tempo para fritar
+
+O cliente precisa escolher dia e horário, e o site não deixa marcar antes de a cozinha dar conta: 1 hora a cada 50 salgados, nunca menos de 1 hora (25 salgados: 1 hora; 100: 2 horas; 300: 6 horas), contando de agora e arredondando para os próximos 15 minutos. Enquanto o cliente monta o pedido, aparece qual é o primeiro horário possível. Os dois números ficam em **Ajustes → Regras dos pedidos** (**Tempo para fritar** e **A cada**); 0 desliga. Se a **Antecedência mínima** for maior, vale ela.
+
 ## Cardápio da Bibi
 
 O site já vem com o cardápio da Bibi (de 29/10/2026): 8 salgados e o churros de doce de leite, qualquer sabor a R$ 1,40 a unidade, pedidos a partir de 25 unidades (pedido mínimo de R$ 35,00). No site, o cliente escolhe de 5 em 5 unidades de cada sabor; isso muda no cadastro do produto, em **No site, de quantas em quantas**.
