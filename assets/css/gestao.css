@@ -65,7 +65,8 @@ html:has(#barra-salvar:not([hidden])) { scroll-padding-bottom: calc(64px + 9.5re
   bottom: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* Com letra grande, o nome que não cabe ganha reticências, e o menu não alarga a página */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   background: var(--papel);
   border-top: 1px solid var(--linha);
@@ -80,7 +81,8 @@ html:has(#barra-salvar:not([hidden])) { scroll-padding-bottom: calc(64px + 9.5re
   font-weight: 700;
   text-decoration: none;
 }
-.g-nav a { position: relative; }
+.g-nav a { position: relative; min-width: 0; }
+.g-nav a > span:not(.nav-badge) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .g-nav a svg { width: 24px; height: 24px; }
 .nav-badge {
   position: absolute;
@@ -256,6 +258,8 @@ html:has(#barra-salvar:not([hidden])) { scroll-padding-bottom: calc(64px + 9.5re
 .pl-abrir:hover .pl-nome { text-decoration: underline; }
 .pl-itens { color: var(--tinta-suave); font-size: 0.9rem; }
 .pl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; margin-top: 0.3rem; }
+/* Com letra grande, "Aguardando pagamento" quebra dentro da etiqueta em vez de alargar a página */
+.pl-meta .pill { max-width: 100%; white-space: normal; }
 .pl-tag { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; color: var(--tinta-suave); }
 .pl-tag svg { width: 15px; height: 15px; }
 .pl-lado { display: grid; justify-items: end; gap: 0.45rem; }
@@ -546,8 +550,10 @@ html:has(#barra-salvar:not([hidden])) { scroll-padding-bottom: calc(64px + 9.5re
 @media (max-width: 620px) {
   /* Pedido: a informação principal ganha a largura toda; total e ação vão para a linha de baixo */
   .pedido-linha { grid-template-columns: minmax(0, 1fr); gap: 0.6rem; }
+  /* Com letra grande, o botão desce para baixo do total em vez de passar da tela */
   .pl-lado {
-    grid-auto-flow: column;
+    display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     padding-left: calc(3.4rem + 0.75rem);
