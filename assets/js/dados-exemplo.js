@@ -12,6 +12,12 @@ export const CONFIG_PADRAO = {
   whatsapp: '5517996353077',
   instagram: 'bibisalgadosrp',
   horario: 'Terça a sábado, das 9h às 19h',
+  // O mesmo horário, para o site conferir: dias (0 = domingo, 6 = sábado) e
+  // horas em que a Bibi atende. O site só aceita pedido para esses dias e horas,
+  // e o tempo de fritar corre dentro deles. O texto acima sai destes campos.
+  diasAtendimento: [2, 3, 4, 5, 6],
+  abreAs: '09:00',
+  fechaAs: '19:00',
   areaEntrega: 'Entregamos em toda a cidade.',
   taxaEntrega: 8,
   // Pedidos a partir de 25 salgados, a R$ 1,40 cada.

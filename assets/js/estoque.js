@@ -165,6 +165,31 @@ export function movimentoDoPedido(antes, depois, ctx) {
   };
 }
 
+// Ligar o estoque de um salgado que já está em pedidos confirmados e ainda não
+// entregues: esses pedidos passam a segurar o salgado, como se tivessem sido
+// confirmados agora. Devolve os pedidos com a reserva nova, quanto eles
+// seguram ao todo, para tirar de uma contagem nova, e quanto passam a segurar
+// agora ("novos"), para tirar do estoque guardado. Ao religar, o guardado já
+// descontou os pedidos que seguravam o salgado antes de desligar. Contar de
+// novo com o estoque ligado usa o mesmo total: a contagem inclui o que esses
+// pedidos ainda vão levar.
+export function reservasAoLigar(produto, pedidos) {
+  const mudados = [];
+  let total = 0;
+  let novos = 0;
+  for (const p of pedidos) {
+    if (!STATUS_COM_RESERVA.includes(p.status) || p.status === 'entregue') continue;
+    const qtd = somarPorProduto(p.itens, (it) => it.produtoId === produto.id)[produto.id] || 0;
+    if (!(qtd > 0)) continue;
+    total = arred(total + qtd);
+    if (p.estoqueReservado?.[produto.id] !== qtd) {
+      novos = arred(novos + qtd - (Number(p.estoqueReservado?.[produto.id]) || 0));
+      mudados.push({ ...p, estoqueReservado: { ...(p.estoqueReservado || {}), [produto.id]: qtd } });
+    }
+  }
+  return { pedidos: mudados, total, novos };
+}
+
 // Produzir salgados para o estoque soma no produto e gasta os ingredientes da ficha.
 export function movimentoDaProducao(produto, quantidade, ctx) {
   const somar = [['produtos', produto.id, 'estoque', quantidade]];
