@@ -50,9 +50,21 @@ As embalagens entram na ficha técnica como os ingredientes, por receita, e fica
 
 O cliente escolhe a ocasião (aniversário, confraternização, reunião, outros) antes de enviar o pedido. Dizendo quantas pessoas vão, o site sugere quantos salgados pedir. As ocasiões e os salgados por pessoa ficam em **Ajustes → Ocasião do pedido**; com 0, a ocasião não sugere quantidade. A ocasião vai na mensagem do WhatsApp e aparece no pedido, na gestão.
 
+## Horário de atendimento
+
+Em **Ajustes → Página de vendas → Horário de atendimento**, o dono marca os dias e as horas em que a Bibi atende (hoje: terça a sábado, das 9h às 19h). O texto do topo, do rodapé e da página "Quem somos" sai daí. O site só aceita pedido para dia e hora dentro desse horário e avisa o cliente quando ele escolhe um dia fechado ou uma hora fora.
+
 ## Tempo para fritar
 
-O cliente precisa escolher dia e horário, e o site não deixa marcar antes de a cozinha dar conta: 1 hora a cada 50 salgados, nunca menos de 1 hora (25 salgados: 1 hora; 100: 2 horas; 300: 6 horas), contando de agora e arredondando para os próximos 15 minutos. Enquanto o cliente monta o pedido, aparece qual é o primeiro horário possível. Os dois números ficam em **Ajustes → Regras dos pedidos** (**Tempo para fritar** e **A cada**); 0 desliga. Se a **Antecedência mínima** for maior, vale ela.
+O cliente precisa escolher dia e horário, e o site não deixa marcar antes de a cozinha dar conta: 1 hora a cada 50 salgados, nunca menos de 1 hora (25 salgados: 1 hora; 100: 2 horas; 300: 6 horas), arredondando para os próximos 15 minutos. O preparo só conta com a Bibi aberta, e, quando cabe num dia, fica num dia só: numa quarta às 18h10, 25 salgados ficam para quinta às 10h; num sábado às 15h, 300 salgados ficam para terça às 15h. Só o preparo maior que um dia inteiro passa de um dia para o outro. Enquanto o cliente monta o pedido, aparece qual é o primeiro horário possível. Os dois números ficam em **Ajustes → Regras dos pedidos** (**Tempo para fritar** e **A cada**); 0 desliga. Se a **Antecedência mínima** for maior, vale ela.
+
+## Se o banco de dados falhar
+
+Se o Firebase não responder, a página de vendas abre com o último cardápio que o aparelho viu (ou com o cardápio que vem no código), avisa que o sistema está instável e deixa pedir normalmente: o pedido vai pelo WhatsApp, mas não entra na gestão. O site tenta o banco de novo sozinho e volta ao normal sem perder o carrinho nem o que o cliente já escreveu. O pedido em andamento também fica guardado no aparelho: fechar a janela, recarregar ou voltar não apaga nada até o envio.
+
+## Backup
+
+Em **Ajustes → Seus dados**, **Baixar backup** e **Copiar backup** levam tudo: ajustes, cardápio, fichas, estoque, pedidos, finanças e a página de apresentação. **Restaurar backup** troca tudo pelo que está no arquivo; um backup antigo, sem a apresentação, deixa a apresentação que já existe.
 
 ## Cardápio da Bibi
 
@@ -96,6 +108,7 @@ python3 -m http.server 8000
 
 ```
 index.html              página de vendas
+404.html                página de endereço que não existe
 sobre.html              página de apresentação ("Quem somos")
 gestao.html             gestão
 gestao.webmanifest      permite instalar a gestão na tela inicial do celular

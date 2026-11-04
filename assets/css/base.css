@@ -6,6 +6,7 @@
   --tinta: #2B1110;
   --tinta-suave: #6F4A43;
   --linha: #ECD8C8;
+  --borda-campo: #9A796C;
   --vinho: #5B0707;
   --vinho-texto: #FFF1E2;
   --laranja: #F47A20;
@@ -42,6 +43,7 @@
     --tinta: #F8EADF;
     --tinta-suave: #CBA79B;
     --linha: #45231F;
+    --borda-campo: #8C6B60;
     --vinho: #5B0707;
     --vinho-texto: #FFF1E2;
     --laranja: #FF8A3D;
@@ -50,7 +52,7 @@
     --foco: #FFB067;
     --botao: #F28A3E;
     --botao-texto: #1C0A08;
-    --whats: #1F9D58;
+    --whats: #157A43;
     --whats-texto: #FFFFFF;
     --ok: #6FD39A;
     --ok-fundo: #173323;
@@ -74,6 +76,7 @@
   --tinta: #F8EADF;
   --tinta-suave: #CBA79B;
   --linha: #45231F;
+  --borda-campo: #8C6B60;
   --vinho: #5B0707;
   --vinho-texto: #FFF1E2;
   --laranja: #FF8A3D;
@@ -82,7 +85,7 @@
   --foco: #FFB067;
   --botao: #F28A3E;
   --botao-texto: #1C0A08;
-  --whats: #1F9D58;
+  --whats: #157A43;
   --whats-texto: #FFFFFF;
   --ok: #6FD39A;
   --ok-fundo: #173323;
@@ -110,7 +113,8 @@ body {
   background: var(--papel);
   color: var(--tinta);
   font-family: var(--fonte-texto);
-  font-size: 16px;
+  /* Em rem, o texto todo acompanha a letra grande escolhida no navegador */
+  font-size: 1rem;
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
 }
@@ -132,8 +136,9 @@ a { color: inherit; }
 :focus-visible {
   outline: 3px solid var(--foco);
   outline-offset: 2px;
-  border-radius: 6px;
 }
+/* Canto arredondado no contorno de links e textos; campos e botões ficam com o canto deles */
+:where(:focus-visible) { border-radius: 6px; }
 
 /* ---------- Botões ---------- */
 
@@ -182,26 +187,34 @@ a { color: inherit; }
 
 /* ---------- Campos ---------- */
 
-.campo { display: grid; gap: 0.35rem; min-width: 0; }
+/* Em grade, o campo não estica quando o vizinho mostra um aviso embaixo.
+   A caixa não passa da própria coluna: a de data do Chrome guarda lugar para ano de 6 dígitos
+   e, sem isso, entrava por baixo do campo do lado. */
+.campo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.35rem; min-width: 0; align-content: start; }
 .campo > span, .rotulo { font-size: 0.875rem; font-weight: 600; color: var(--tinta-suave); }
 .campo small { color: var(--tinta-suave); font-size: 0.8125rem; }
 
+/* Borda própria, mais escura que as linhas: dá para ver onde digitar */
 input, select, textarea {
   width: 100%;
   min-height: 44px;
   padding: 0.55rem 0.75rem;
-  border: 1.5px solid var(--linha);
+  border: 1.5px solid var(--borda-campo);
   border-radius: 10px;
   background: var(--papel);
   color: var(--tinta);
   font: inherit;
-  font-size: 16px;
+  /* Nunca menos de 16 px (o iPhone dá zoom no campo), e cresce com a letra do navegador */
+  font-size: max(16px, 1rem);
 }
 textarea { min-height: 84px; resize: vertical; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--laranja); box-shadow: 0 0 0 3px rgb(244 122 32 / 0.25); }
-input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-height: 0; accent-color: var(--vinho); }
+input:focus, select:focus, textarea:focus { border-color: var(--foco); }
+/* No escuro, a cor de destaque clara: a opção marcada aparece cheia */
+input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-height: 0; accent-color: var(--botao); }
+input[type="checkbox"] { border-radius: 4px; }
 .campo-invalido { border-color: var(--erro) !important; }
-.erro-campo { color: var(--erro); font-size: 0.8125rem; font-weight: 600; }
+/* .campo > .erro-campo vence a cor de rótulo de .campo > span */
+.erro-campo, .campo > .erro-campo { color: var(--erro); font-size: 0.8125rem; font-weight: 600; }
 
 .opcoes { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .opcao {
@@ -211,13 +224,16 @@ input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; min-hei
   cursor: pointer; font-weight: 600;
 }
 .opcao:has(input:checked) { border-color: var(--tinta); background: var(--superficie-2); }
+/* Com o teclado, o contorno de foco abraça a opção inteira; o do rádio, por dentro, fica mais fino */
+.opcao:has(:focus-visible) { outline: 3px solid var(--foco); outline-offset: 2px; }
+.opcao input:focus-visible { outline-width: 2px; outline-offset: 1px; }
 .opcao input { margin: 0; }
 
 /* ---------- Seletor de quantidade ---------- */
 
 .qtd {
   display: inline-flex; align-items: center;
-  border: 1.5px solid var(--linha); border-radius: 999px;
+  border: 1.5px solid var(--borda-campo); border-radius: 999px;
   background: var(--papel);
 }
 .qtd button {
@@ -272,6 +288,9 @@ dialog.janela {
   box-shadow: var(--sombra);
   overflow: auto;
   overscroll-behavior: contain;
+  /* O campo com foco para fora do topo e do rodapé, que ficam grudados na janela.
+     No pé sobra mais: na caixa de texto o navegador só mostra a linha do cursor. */
+  scroll-padding-block: calc(5rem + env(safe-area-inset-top, 0px)) calc(8.5rem + env(safe-area-inset-bottom, 0px));
 }
 dialog.janela > form { display: flex; flex-direction: column; min-height: 100%; }
 dialog.janela::backdrop { background: rgb(23 9 8 / 0.6); }
@@ -303,23 +322,34 @@ dialog.janela::backdrop { background: rgb(23 9 8 / 0.6); }
   .janela-topo { padding-top: calc(0.75rem + env(safe-area-inset-top, 0px)); }
 }
 
+/* Tela baixa (celular deitado, zoom grande): topo e rodapé da janela mais finos */
+@media (max-height: 500px) {
+  .janela-topo { padding-block: calc(0.375rem + env(safe-area-inset-top, 0px)) 0.375rem; }
+  .janela-rodape { padding-block: 0.5rem calc(0.5rem + env(safe-area-inset-bottom, 0px)); }
+  dialog.janela { scroll-padding-block: calc(4rem + env(safe-area-inset-top, 0px)) calc(7.5rem + env(safe-area-inset-bottom, 0px)); }
+}
+
 /* ---------- Aviso rápido ---------- */
 
+/* Usa a largura da tela, com 16 px de margem, e fica acima da barra "Ver pedido" */
 .aviso-rapido {
   position: fixed;
-  left: 50%;
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  left: var(--gutter-esq);
+  right: var(--gutter-dir);
+  bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
   z-index: 50;
-  transform: translateX(-50%);
-  max-width: calc(100% - 32px);
+  width: max-content;
+  max-width: min(32rem, 100% - var(--gutter-esq) - var(--gutter-dir));
+  margin-inline: auto;
   padding: 0.7rem 1.1rem;
-  border-radius: 999px;
+  border-radius: 14px;
   background: var(--botao);
   color: var(--botao-texto);
   font-weight: 600;
   box-shadow: var(--sombra);
 }
-.aviso-rapido.erro { background: var(--erro); color: #fff; }
+/* Texto na cor do papel: claro sobre o vermelho do modo claro, escuro sobre o salmão do modo escuro */
+.aviso-rapido.erro { background: var(--erro); color: var(--papel); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }

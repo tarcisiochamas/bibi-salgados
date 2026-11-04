@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Página não encontrada · Bibi Salgados</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#5B0707">
+<!-- O GitHub Pages mostra esta página em qualquer endereço que não existe, até
+     /a/b/c: por isso todos os caminhos começam na raiz (/assets/...). -->
+<link rel="icon" href="/assets/img/icone-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="/assets/img/icone-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="/assets/img/icone-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Oswald:wght@500;600&display=swap">
+<link rel="stylesheet" href="/assets/css/base.css">
+<link rel="stylesheet" href="/assets/css/loja.css">
+</head>
+<body>
+
+<header class="letreiro">
+  <div class="envoltorio">
+    <div class="letreiro-topo">
+      <a href="/" aria-label="Ver o cardápio"><img class="letreiro-logo" src="/assets/img/logo-480.jpg" width="176" height="176" alt="Bibi Salgados"></a>
+      <div class="letreiro-texto">
+        <p class="letreiro-local">Bibi Salgados</p>
+        <h1 class="sobre-titulo">Página não encontrada</h1>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="envoltorio sobre">
+  <div class="sobre-texto">
+    <p>Este endereço não existe ou mudou de lugar. O cardápio e os pedidos continuam no endereço principal da Bibi.</p>
+  </div>
+  <p class="acoes-linha">
+    <a class="btn" href="/">Ver o cardápio</a>
+    <a class="btn btn-whats" id="whats" href="/" target="_blank" rel="noopener" hidden>Chamar no WhatsApp</a>
+  </p>
+</main>
+
+<script type="module">
+  // O número vem dos ajustes guardados pela página de vendas (o último que veio
+  // do banco) ou, sem eles, dos ajustes que vêm no código.
+  import { CONFIG_PADRAO } from '/assets/js/dados-exemplo.js';
+  import { esc, linkWhats, telefoneBonito, lerLocal } from '/assets/js/util.js';
+  import { icone } from '/assets/js/icones.js';
+
+  const guardado = lerLocal('bibi-salgados:cardapio-guardado', null)?.config || {};
+  const whatsapp = guardado.whatsapp || CONFIG_PADRAO.whatsapp;
+  const link = document.getElementById('whats');
+  if (whatsapp) {
+    link.href = linkWhats(whatsapp);
+    link.innerHTML = `${icone('conversa')} WhatsApp ${esc(telefoneBonito(whatsapp))}`;
+    link.hidden = false;
+  }
+</script>
+</body>
+</html>

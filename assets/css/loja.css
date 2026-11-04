@@ -87,7 +87,21 @@ body::before {
   font-weight: 600;
 }
 
+/* Banco fora do ar: o cardápio guardado aparece e o pedido vai só pelo WhatsApp. */
+.instavel {
+  margin-top: 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--raio);
+  background: var(--info-fundo);
+  color: var(--info);
+  font-size: 0.95rem;
+}
+
 /* ---------- Categorias ---------- */
+
+/* O foco do teclado e os atalhos param fora das faixas que ficam por cima do cardápio:
+   a de categorias, grudada no topo, e a barra "Ver pedido", no pé. */
+html { scroll-padding-block: calc(4.75rem + env(safe-area-inset-top, 0px)) calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
 
 .categorias {
   position: sticky;
@@ -120,7 +134,7 @@ body::before {
 /* ---------- Cardápio ---------- */
 
 .cardapio { display: grid; gap: 2.75rem; padding-block: 1.75rem 2rem; }
-.secao { display: grid; gap: 0.25rem; scroll-margin-top: calc(76px + env(safe-area-inset-top, 0px)); }
+.secao { display: grid; gap: 0.25rem; }
 .secao > h2 {
   font-family: var(--fonte-titulo);
   font-weight: 600;
@@ -182,6 +196,8 @@ body::before {
 /* Botão sempre no pé do cartão, alinhado com o vizinho de nome mais comprido */
 .cartao-acoes { margin-top: auto; padding-top: 0.45rem; }
 .cartao-acoes .btn, .cartao-acoes .qtd { width: 100%; }
+/* Botão Adicionar com a mesma borda do seletor −/+ que entra no lugar dele */
+.cartao-acoes .btn-contorno, .item-acoes .btn-contorno { border-color: var(--borda-campo); }
 .cartao-acoes .qtd { justify-content: space-between; }
 .cartao.no-pedido .cartao-foto { outline: 3px solid var(--laranja); outline-offset: 3px; }
 .cartao.no-pedido h3::before {
@@ -311,6 +327,15 @@ body::before {
   font-size: 0.9rem;
 }
 
+/* Tela baixa (celular deitado, zoom grande): a faixa de categorias rola com a página
+   e a barra do pedido afina, para sobrar espaço para o cardápio. */
+@media (max-height: 500px) {
+  .categorias { position: static; }
+  html { scroll-padding-block: 0.75rem calc(5rem + env(safe-area-inset-bottom, 0px)); }
+  .barra-pedido { padding-block: 0.5rem calc(0.5rem + env(safe-area-inset-bottom, 0px)); }
+  .barra-pedido .btn { min-height: 44px; padding-block: 0.35rem; }
+}
+
 /* ---------- Finalizar pedido ---------- */
 
 .resumo-itens { display: grid; gap: 0.75rem; }
@@ -327,8 +352,8 @@ body::before {
 .resumo-item .unit { color: var(--tinta-suave); font-size: 0.875rem; }
 .resumo-encomenda { display: block; color: var(--alerta); font-weight: 700; }
 
-/* Ocasião e sugestão de quantidade */
-.campo-pessoas { max-width: 220px; }
+/* Ocasião e sugestão de quantidade. Em rem, o rótulo cabe numa linha com a letra grande. */
+.campo-pessoas { max-width: 13.75rem; }
 .sugestao {
   padding: 0.75rem 0.9rem;
   border-radius: var(--raio);
@@ -339,7 +364,9 @@ body::before {
 
 .bloco { display: grid; gap: 0.85rem; }
 .bloco > h3 { font-size: 1rem; }
-.duas-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.85rem; }
+/* Alinhadas pelo topo: o aviso embaixo de um campo não estica o vizinho.
+   Largura mínima em rem: com a letra grande do navegador, as duas colunas viram uma. */
+.duas-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr)); gap: 0.85rem; align-items: start; }
 
 .totais { display: grid; gap: 0.35rem; padding: 1rem; border-radius: var(--raio); background: var(--superficie); }
 .totais div { display: flex; justify-content: space-between; gap: 1rem; font-variant-numeric: tabular-nums; }

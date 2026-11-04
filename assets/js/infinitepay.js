@@ -74,7 +74,9 @@ export async function criarCobranca({ tag, pedido, voltarPara }) {
   return url;
 }
 
-// O que a InfinitePay põe no endereço quando o cliente volta ao site.
+// O que a InfinitePay põe no endereço quando o cliente volta ao site. O código
+// tem de ter a cara do código de pedido do site (letras e números, como "K7Q2");
+// a página de vendas ainda confere se o pedido saiu deste aparelho.
 export function lerRetorno(busca) {
   const q = new URLSearchParams(busca);
   const r = {
@@ -84,7 +86,8 @@ export function lerRetorno(busca) {
     meio: q.get('capture_method') || '',
     comprovante: comprovanteSeguro(q.get('receipt_url')),
   };
-  return r.codigo && (r.transacao || r.slug) ? r : null;
+  if (!/^[A-Z0-9]{4,12}$/i.test(r.codigo)) return null;
+  return r.transacao || r.slug ? r : null;
 }
 
 // Só aceita comprovante da própria InfinitePay, para ninguém montar um link

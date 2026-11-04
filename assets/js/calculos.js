@@ -2,7 +2,7 @@
 // e resumo financeiro. Funções puras, sem tela, para dar para testar.
 
 import { RETIRADA, APORTE } from './dados-exemplo.js';
-import { mesISO, deISO } from './util.js';
+import { mesISO, deISO, num, telefoneWhats } from './util.js';
 import { lerChavePix } from './pix.js';
 
 export const STATUS = {
@@ -120,11 +120,11 @@ export function unidadesDoPedido(itens) {
 
 // ---------- Ocasião do pedido ----------
 
-// "Aniversário · 30 pessoas"
+// "Aniversário · 30 pessoas", "Confraternização · 1.000 pessoas"
 export function textoOcasiao(ocasiao) {
   if (!ocasiao?.tipo) return '';
   const pessoas = Number(ocasiao.pessoas) || 0;
-  return pessoas > 0 ? `${ocasiao.tipo} · ${pessoas} ${pessoas === 1 ? 'pessoa' : 'pessoas'}` : ocasiao.tipo;
+  return pessoas > 0 ? `${ocasiao.tipo} · ${num(pessoas)} ${pessoas === 1 ? 'pessoa' : 'pessoas'}` : ocasiao.tipo;
 }
 
 // Quantos salgados sugerir para a ocasião e o número de pessoas; null sem sugestão.
@@ -153,8 +153,9 @@ const nosProximos15 = (d) => new Date(Math.ceil(d.getTime() / QUINZE_MIN) * QUIN
 // O primeiro horário que o cliente pode escolher: agora mais a antecedência
 // mínima ou o tempo de preparo, o que for maior, nos próximos 15 minutos. Com
 // horário de atendimento, a cozinha só frita com a Bibi aberta: o preparo corre
-// dentro do horário e o pedido fica para quando ela atende (terça 22h40, 25
-// salgados: quarta às 10:00).
+// dentro do horário, num dia só quando cabe, e o pedido fica para quando ela
+// atende (terça 22h40, 25 salgados: quarta às 10:00; sábado 15h, 300 salgados:
+// terça às 15:00).
 export function primeiroHorario(unidades, config, agora = new Date()) {
   const antecedencia = (Number(config?.antecedenciaHoras) || 0) * 60000 * 60;
   const preparo = minutosDePreparo(unidades, config) * 60000;
@@ -207,14 +208,18 @@ function proximoMomentoAberto(d, a) {
   return naHora(dia, a.abre);
 }
 
-// Soma "ms" de trabalho a partir de "inicio", contando só o horário aberto.
+// Soma "ms" de trabalho a partir de "inicio", contando só o horário aberto. O
+// preparo que cabe num dia de atendimento fica todo no mesmo dia (não se frita
+// à noite para entregar de manhã): se não couber no que sobra de hoje, começa
+// na abertura seguinte. Só o que passa de um dia inteiro é dividido.
 function somarTempoAberto(inicio, ms, a) {
+  const cabeNumDia = ms <= (a.fecha - a.abre) * 60000;
   let t = proximoMomentoAberto(inicio, a);
   let falta = ms;
   for (let i = 0; i < 400; i++) {
     const fim = naHora(t, a.fecha);
     if (falta <= fim - t) return new Date(t.getTime() + falta);
-    falta -= fim - t;
+    if (!cabeNumDia) falta -= fim - t;
     t = proximoMomentoAberto(new Date(fim.getTime() + 60000), a);
   }
   return t;
@@ -323,12 +328,13 @@ export function ingredientesDaProducao(producao, fichasPorId, ingredientesPorId)
   return { lista, semFicha, custoTotal: lista.reduce((s, l) => s + l.custo, 0) };
 }
 
-// "1,25 kg", "300 g", "2 un", "1,5 L"
+// "1,25 kg", "300 g", "1,6 un", "1,5 L". As unidades saem sem arredondar para
+// cima, para a quantidade bater com o custo calculado sobre ela.
 export function quantidadeLegivel(qtd, unidade) {
   const fmt = (n, casas = 2) => n.toLocaleString('pt-BR', { maximumFractionDigits: casas });
   if (unidade === 'g') return qtd >= 1000 ? `${fmt(qtd / 1000)} kg` : `${fmt(qtd, 0)} g`;
   if (unidade === 'ml') return qtd >= 1000 ? `${fmt(qtd / 1000)} L` : `${fmt(qtd, 0)} ml`;
-  return `${fmt(Math.ceil(qtd - 1e-9), 0)} un`;
+  return `${fmt(qtd)} un`;
 }
 
 // ---------- Financeiro ----------
@@ -349,9 +355,12 @@ export function resumoDoMes(mes, pedidos, lancamentos) {
   const despesas = doMes.filter((l) => l.tipo === 'saida' && l.categoria !== RETIRADA);
   const retiradas = doMes.filter((l) => l.tipo === 'saida' && l.categoria === RETIRADA);
 
-  const vendas = somar(vendasPedidos, (p) => p.total) + somar(vendasAvulsas) + somar(outrasEntradas);
+  // Vendas são só os pedidos pagos e as vendas avulsas, como no DRE. As outras
+  // entradas (vender um equipamento, por exemplo) ficam à parte e entram só no lucro.
+  const vendas = somar(vendasPedidos, (p) => p.total) + somar(vendasAvulsas);
+  const totalOutrasEntradas = somar(outrasEntradas);
   const totalDespesas = somar(despesas);
-  const lucro = vendas - totalDespesas;
+  const lucro = vendas + totalOutrasEntradas - totalDespesas;
   const totalRetiradas = somar(retiradas);
   const totalAportes = somar(aportes);
 
@@ -359,7 +368,7 @@ export function resumoDoMes(mes, pedidos, lancamentos) {
   for (const d of despesas) porCategoria[d.categoria] = (porCategoria[d.categoria] || 0) + (Number(d.valor) || 0);
 
   return {
-    vendas, vendasPedidos, totalDespesas, lucro, totalRetiradas, totalAportes,
+    vendas, vendasPedidos, totalOutrasEntradas, totalDespesas, lucro, totalRetiradas, totalAportes,
     caixa: lucro - totalRetiradas + totalAportes,
     margem: vendas > 0 ? lucro / vendas : null,
     porCategoria: Object.entries(porCategoria).sort((a, b) => b[1] - a[1]),
@@ -377,21 +386,18 @@ export const IMPOSTOS = 'Impostos (MEI)';
 // DRE (demonstrativo de resultado) pelo dinheiro que entrou e saiu no mês, a
 // partir do resumoDoMes: vendas, menos taxas, menos o que foi comprado para
 // fazer os salgados, menos despesas e impostos. Retiradas e aportes do dono
-// ficam de fora, então o lucro bate com o do resumo.
+// ficam de fora. Vendas e outras entradas vêm do resumo, então as vendas, o
+// lucro e a margem batem com os do quadro da Finanças e da tela Hoje.
 export function dreDoMes(r) {
-  const entradas = (filtro) => r.lancamentos
-    .filter((l) => l.tipo === 'entrada' && filtro(l.categoria))
-    .reduce((s, l) => s + (Number(l.valor) || 0), 0);
   const gasto = Object.fromEntries(r.porCategoria);
-  const vendas = r.vendasPedidos.reduce((s, p) => s + (Number(p.total) || 0), 0)
-    + entradas((c) => c === 'Venda avulsa');
+  const vendas = r.vendas;
   const taxas = gasto[TAXAS] || 0;
   const custo = CUSTO_DOS_SALGADOS.reduce((s, c) => s + (gasto[c] || 0), 0);
   const impostos = gasto[IMPOSTOS] || 0;
   const separadas = new Set([TAXAS, IMPOSTOS, ...CUSTO_DOS_SALGADOS]);
   const despesas = r.porCategoria.filter(([c]) => !separadas.has(c));
   const totalDespesas = despesas.reduce((s, [, v]) => s + v, 0);
-  const outrasEntradas = entradas((c) => !['Venda avulsa', APORTE].includes(c));
+  const outrasEntradas = r.totalOutrasEntradas;
   const receitaLiquida = vendas - taxas;
   const lucroBruto = receitaLiquida - custo;
   const lucro = lucroBruto - totalDespesas - impostos + outrasEntradas;
@@ -435,7 +441,8 @@ export function clientesDosPedidos(pedidos) {
     if (p.status === 'cancelado') continue;
     const nome = (p.cliente?.nome || '').trim();
     if (!nome) continue;
-    const tel = (p.cliente?.telefone || '').replace(/\D/g, '');
+    // "(017) 99123-4567" e "17 99123-4567" são a mesma pessoa.
+    const tel = telefoneWhats(p.cliente?.telefone || '');
     const chave = tel || nome.toLowerCase();
     const c = mapa.get(chave) || { nome, telefone: p.cliente?.telefone || '', pedidos: 0, total: 0, ultimo: '' };
     c.pedidos += 1;

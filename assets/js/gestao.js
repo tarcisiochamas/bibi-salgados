@@ -12,13 +12,14 @@ import {
   custoDoProduto, analisarPreco, totaisPedido, resumoItens, producaoDasDatas, ingredientesDaProducao,
   quantidadeLegivel, resumoDoMes, aReceber, clientesDosPedidos, dataDoRecebimento,
   formasAntecipadas, aguardandoPagamento, PIX_ANTECIPADO, CARTAO_PELO_LINK, CARTAO_NO_SITE,
-  textoOcasiao, textoEncomenda, dreDoMes, minutosDePreparo, textoDuracao,
+  textoOcasiao, textoEncomenda, dreDoMes, minutosDePreparo, textoDuracao, textoAtendimento,
 } from './calculos.js';
 import { lerChavePix, codigoPix } from './pix.js';
 import { lerInfiniteTag, criarCobranca, explicarErro } from './infinitepay.js';
 import {
   controlaEstoque, foiContado, esgotado, situacaoProduto, situacaoIngrediente, movimentoDoPedido,
   movimentoDaProducao, emPedidosNovos, faltasDepois, listaDeCompras, contexto, aceitaEncomenda, simularCompra,
+  reservasAoLigar,
 } from './estoque.js';
 import { reduzirFoto, tamanhoDaFoto } from './fotos.js';
 import { icone } from './icones.js';
@@ -46,7 +47,13 @@ const NAV = [
 ];
 
 const ORIGENS = ['WhatsApp', 'Site', 'Instagram', 'Balcão', 'iFood', 'Indicação', 'Outro'];
+// Dias do horário de atendimento, da segunda ao domingo (0 = domingo, como no Date).
+const DIAS_DA_SEMANA = [[1, 'Seg', 'Segunda'], [2, 'Ter', 'Terça'], [3, 'Qua', 'Quarta'], [4, 'Qui', 'Quinta'],
+  [5, 'Sex', 'Sexta'], [6, 'Sáb', 'Sábado'], [0, 'Dom', 'Domingo']];
 const FORMAS_PADRAO = ['Pix', 'Dinheiro', 'Cartão na entrega', 'Cartão de crédito', 'Vale-refeição'];
+// Na retirada, "Cartão na entrega" aparece "Cartão na retirada", como no site e
+// na mensagem; o texto gravado continua o dos Ajustes.
+const formaMostrada = (forma, tipo) => (tipo === 'entrega' ? forma || '' : String(forma || '').replace(/\b(na|antes da) entrega\b/gi, '$1 retirada'));
 const UNIDADES_COMPRA = {
   kg: ['g', 1000, 'quilo (kg)'],
   g: ['g', 1, 'grama (g)'],
@@ -168,6 +175,19 @@ function sufixoVenda(p) {
   return `${String(p.unidade || 'pacote').split(' ')[0]}s`;
 }
 
+// "20 un no estoque" ou "faltam 55 un"
+function textoDoEstoque(p, qtd) {
+  return qtd < 0 ? `faltam ${qtdVenda(p, -qtd)}` : `${qtdVenda(p, qtd)} no estoque`;
+}
+
+// Quantos estão prontos de fato, o número que se conta na prateleira: o que
+// sobra no estoque mais o que os pedidos confirmados e ainda não entregues já
+// seguram (o total deles menos o que passariam a segurar agora).
+function prontosAgora(p, pedidos) {
+  const r = reservasAoLigar(p, pedidos);
+  return Math.round(((Number(p.estoque) || 0) + r.total - r.novos) * 1000) / 1000;
+}
+
 // Estoque de ingrediente sem arredondar para cima: "2,5 kg", "8,5 un"
 function estoqueLegivel(qtd, unidade) {
   return unidade === 'un' ? `${num(qtd, 1)} un` : quantidadeLegivel(qtd, unidade);
@@ -200,22 +220,26 @@ function aviso(texto, tipo = '') {
   const el = document.createElement('div');
   el.className = `aviso-rapido ${tipo}`;
   el.setAttribute('role', 'status');
-  el.textContent = texto;
   ($('#janela').open ? $('#janela') : document.body).appendChild(el);
-  setTimeout(() => el.remove(), tipo === 'erro' ? 6000 : 2600);
+  // O texto entra depois da caixa, para o leitor de tela anunciar.
+  setTimeout(() => { el.textContent = texto; }, 50);
+  setTimeout(() => el.remove(), tipo === 'erro' ? 6000 : 4500);
 }
 
-// Botões perigosos pedem um segundo toque.
+// Botões perigosos pedem um segundo toque. O nome para o leitor de tela muda junto.
 function precisaConfirmar(botao) {
   if (botao.dataset.armado) return false;
   botao.dataset.armado = '1';
   const original = botao.innerHTML;
+  const nome = botao.getAttribute('aria-label');
   botao.textContent = botao.dataset.confirmar;
+  if (nome) botao.setAttribute('aria-label', botao.dataset.confirmar);
   botao.classList.add('btn-perigo');
   setTimeout(() => {
     if (!botao.isConnected) return;
     delete botao.dataset.armado;
     botao.innerHTML = original;
+    if (nome) botao.setAttribute('aria-label', nome);
     botao.classList.remove('btn-perigo');
   }, 5000);
   return true;
@@ -243,10 +267,21 @@ async function iniciar() {
   window.addEventListener('hashchange', () => {
     const t = telaDoEndereco();
     if (t === ui.tela) return;
+    if (!podeSairDosAjustes(t)) {
+      // Fica nos Ajustes: o endereço volta para eles sem redesenhar.
+      location.hash = ui.tela;
+      return;
+    }
     ui.tela = t;
     ui.ajustesSujo = false;
     desenhar();
     window.scrollTo(0, 0);
+  });
+  // Fechar ou recarregar a aba com ajustes não salvos: o navegador pergunta.
+  window.addEventListener('beforeunload', (e) => {
+    if (ui.tela !== 'ajustes' || !ui.ajustesSujo) return;
+    e.preventDefault();
+    e.returnValue = '';
   });
   window.addEventListener('online', desenharSinc);
   window.addEventListener('offline', desenharSinc);
@@ -255,6 +290,12 @@ async function iniciar() {
 function telaDoEndereco() {
   const h = location.hash.replace('#', '');
   return TELAS[h] ? h : 'hoje';
+}
+
+// Sair dos Ajustes com mudança não salva perde a mudança: pergunta antes.
+function podeSairDosAjustes(destino) {
+  if (ui.tela !== 'ajustes' || !ui.ajustesSujo || destino === 'ajustes') return true;
+  return window.confirm('Você tem alterações não salvas. Sair sem salvar?');
 }
 
 function mostrarConformeUsuario(usuario) {
@@ -270,7 +311,11 @@ function mostrarConformeUsuario(usuario) {
 }
 
 function irPara(tela) {
-  ui.tela = TELAS[tela] ? tela : 'hoje';
+  const destino = TELAS[tela] ? tela : 'hoje';
+  // Tocar em Ajustes estando nos Ajustes não pode apagar o que foi mudado.
+  if (destino === ui.tela && ui.ajustesSujo) return;
+  if (!podeSairDosAjustes(destino)) return;
+  ui.tela = destino;
   ui.ajustesSujo = false;
   try {
     if (location.hash !== `#${ui.tela}`) location.hash = ui.tela;
@@ -281,8 +326,81 @@ function irPara(tela) {
   window.scrollTo(0, 0);
 }
 
+// Redesenhar troca os botões da tela por outros, e quem usa o teclado perderia
+// o lugar. Guarda o controle que estava com o foco para devolvê-lo depois ao
+// equivalente: o mesmo botão (mesma ação, mesmo pedido); se ele sumiu, a linha
+// do mesmo pedido, se ela continua na mesma lista; o controle que vinha logo
+// depois; o que ficou na mesma posição entre os do mesmo tipo; ou o começo do
+// conteúdo. O botão de um pedido nunca passa para o mesmo botão de outro
+// pedido: um Enter a mais marcaria o outro como pago ou confirmado. Só conta o
+// que está à vista: a lixeira da única linha do Simular, por exemplo, fica
+// escondida.
+const visiveis = (raiz, seletor) => [...raiz.querySelectorAll(seletor)].filter((el) => el.getClientRects().length);
+const FOCAVEIS = 'a[href], button, input, select, textarea';
+
+// O título que vem antes da lista do controle ("A receber", "Amanhã"), para
+// achar a mesma lista depois de redesenhar. O pedido pago sai de "A receber" e
+// aparece nas movimentações, longe de onde estava.
+function tituloDaLista(el) {
+  let t = el.closest('.lista');
+  while (t && !/^H\d$/.test(t.tagName)) t = t.previousElementSibling;
+  return t ? t.textContent.trim() : '';
+}
+
+// "#busca-pedidos" ou '[data-acao="avancar"][data-id="ex-2"]'
+function seletorDe(el) {
+  if (!el) return '';
+  if (el.id) return `#${CSS.escape(el.id)}`;
+  return el.getAttributeNames().filter((n) => n.startsWith('data-') && n !== 'data-armado')
+    .map((n) => `[${n}="${CSS.escape(el.getAttribute(n))}"]`).join('');
+}
+
+function lugarDoFoco() {
+  const el = document.activeElement;
+  const area = el?.closest?.('#g-nav, #g-conteudo, .g-topo');
+  if (!area || el === area) return null;
+  const primeiro = el.getAttributeNames().find((n) => n.startsWith('data-') && n !== 'data-armado');
+  const tipo = el.dataset.acao ? `[data-acao="${CSS.escape(el.dataset.acao)}"]` : primeiro ? `[${primeiro}]` : '';
+  const focaveis = visiveis(area, FOCAVEIS);
+  return {
+    area: area.id ? `#${area.id}` : '.g-topo',
+    tela: ui.tela,
+    exato: seletorDe(el),
+    tipo,
+    posicao: tipo ? visiveis(area, tipo).indexOf(el) : -1,
+    pedido: el.dataset.id ? `[data-abrir-pedido="${CSS.escape(el.dataset.id)}"]` : '',
+    lista: tituloDaLista(el),
+    vizinho: seletorDe(focaveis[focaveis.indexOf(el) + 1]),
+    selecao: typeof el.selectionStart === 'number' ? [el.selectionStart, el.selectionEnd] : null,
+  };
+}
+
+function devolverFoco(lugar) {
+  if (!lugar) return;
+  const area = $(lugar.area);
+  // Um botão do conteúdo levou para outra tela ("Ver produção"): o foco vai para
+  // o começo da tela nova, e não para um controle parecido no meio dela.
+  if (lugar.area === '#g-conteudo' && lugar.tela !== ui.tela) {
+    area.focus({ preventScroll: true });
+    return;
+  }
+  // Botão de pedido não vai para o do mesmo tipo: esse é o de outro pedido.
+  const doTipo = lugar.tipo && !lugar.pedido ? visiveis(area, lugar.tipo) : [];
+  const alvo = (lugar.exato && visiveis(area, lugar.exato)[0])
+    || (lugar.pedido && visiveis(area, lugar.pedido).find((x) => tituloDaLista(x) === lugar.lista))
+    || (lugar.vizinho && visiveis(area, lugar.vizinho)[0])
+    || (lugar.posicao >= 0 && doTipo[Math.min(lugar.posicao, doTipo.length - 1)])
+    || $('#g-conteudo');
+  if (alvo === document.activeElement) return;
+  alvo.focus({ preventScroll: true });
+  if (lugar.selecao && alvo.setSelectionRange) {
+    try { alvo.setSelectionRange(...lugar.selecao); } catch { /* campo sem cursor (data, número) */ }
+  }
+}
+
 function desenhar() {
   if (!store || $('#app').hidden) return;
+  const foco = lugarDoFoco();
   desenharSinc();
   desenharNav();
   $('#g-marca img').alt = config().nome;
@@ -295,11 +413,27 @@ function desenhar() {
     main.innerHTML = htmlErroAcesso();
     return;
   }
-  if (ui.tela === 'ajustes' && ui.ajustesSujo) return;
+  if (ui.tela === 'ajustes' && ui.ajustesSujo) {
+    devolverFoco(foco);
+    return;
+  }
   const [titulo, desenharTela] = TELAS[ui.tela];
   main.innerHTML = desenharTela();
   document.title = `${titulo} · Gestão · ${config().nome}`;
   if (ui.tela === 'ajustes') desenharQrPrevia();
+  mostrarAbaEscolhida();
+  devolverFoco(foco);
+}
+
+// No celular as abas rolam para o lado: a escolhida fica à vista.
+function mostrarAbaEscolhida() {
+  document.querySelectorAll('.segmentado').forEach((s) => {
+    const b = s.querySelector('[aria-pressed="true"]');
+    if (!b || s.scrollWidth <= s.clientWidth) return;
+    const caixa = s.getBoundingClientRect();
+    const aba = b.getBoundingClientRect();
+    if (aba.left < caixa.left || aba.right > caixa.right) s.scrollLeft += aba.left - caixa.left - (caixa.width - aba.width) / 2;
+  });
 }
 
 function desenharSinc() {
@@ -349,13 +483,16 @@ function htmlErroAcesso() {
 // ---------------------------------------------------------------------------
 
 // Salva o pedido e acerta o estoque junto: os salgados prontos que ele segura
-// e os ingredientes que a produção gastou. Devolve o que ficou faltando.
+// e os ingredientes que a produção gastou. Devolve o que ficou faltando,
+// calculado antes de salvar: no modo local o estoque já muda ao salvar, e a
+// baixa seria contada duas vezes.
 function salvarPedido(pedido) {
   const antes = dados().pedidos.find((x) => x.id === pedido.id) || null;
   const ctx = contexto(dados());
   const mov = movimentoDoPedido(antes, pedido, ctx);
+  const faltas = faltasDepois(mov.somar, ctx.produtosPorId);
   store.emConjunto({ salvar: [['pedidos', mov.pedido]], somar: mov.somar });
-  return faltasDepois(mov.somar, ctx.produtosPorId);
+  return faltas;
 }
 
 function excluirPedidos(lista) {
@@ -918,13 +1055,16 @@ function htmlResultadoSimulacao() {
     <div class="acoes"><button class="btn btn-contorno" data-acao="copiar-simulacao">${icone('copiar')} Copiar lista</button></div>`;
 }
 
+// Como na tela: o salgado sem ficha técnica fica fora da conta e é avisado.
 function textoDaSimulacao() {
   const r = resultadoSimulacao();
   const prodMap = porId(dados().produtos);
   const l = [`Simulação de compra · ${config().nome}`, ''];
   for (const s of ui.simulacao) {
-    if (lerNumero(s.unidades) > 0 && prodMap[s.produtoId]) l.push(`${num(lerNumero(s.unidades))} ${prodMap[s.produtoId].nome}`);
+    const prod = prodMap[s.produtoId];
+    if (lerNumero(s.unidades) > 0 && prod && !r.semFicha.includes(prod.nome)) l.push(`${num(lerNumero(s.unidades))} ${prod.nome}`);
   }
+  if (r.semFicha.length) l.push('', `Fora da conta (sem ficha técnica): ${r.semFicha.join(', ')}.`);
   l.push('', 'Comprar:');
   for (const x of r.linhas) if (textoComprar(x)) l.push(`- ${x.ingrediente.nome}: ${textoComprar(x)}`);
   l.push('', `Total estimado: ${brl(r.custoCompra)}`);
@@ -1078,6 +1218,7 @@ function telaFinancas() {
       ${kpi('Sobrou no caixa', brl(r.caixa), 'lucro − retiradas + aportes', r.caixa < 0 ? 'negativo' : '')}
     </div>
     <div class="caixa-resumo">
+      ${r.totalOutrasEntradas ? `<span>Outras entradas, somadas ao lucro: <strong>${brl(r.totalOutrasEntradas)}</strong></span>` : ''}
       <span>Suas retiradas: <strong>${brl(r.totalRetiradas)}</strong></span>
       <span>Dinheiro que você colocou: <strong>${brl(r.totalAportes)}</strong></span>
     </div>
@@ -1154,7 +1295,7 @@ function htmlMovimento(m) {
       <button type="button" class="lanc-linha" data-abrir-pedido="${esc(m.p.id)}">
         <span class="linha-info">
           <strong>Pedido #${esc(m.p.codigo)} · ${esc(m.p.cliente?.nome || '')}</strong>
-          <span class="suave">${esc(dataCurta(m.data))} · Venda · ${esc(m.p.pagamento?.forma || '')}</span>
+          <span class="suave">${esc(dataCurta(m.data))} · Venda · ${esc(formaMostrada(m.p.pagamento?.forma, m.p.entrega?.tipo))}</span>
         </span>
         <span class="valor-entrada num">+ ${brl(m.p.total)}</span>
       </button>`;
@@ -1198,7 +1339,18 @@ function telaAjustes() {
           <label class="campo"><span>Instagram</span><input name="instagram" id="aj-instagram" value="${esc(c.instagram ? `@${c.instagram}` : '')}" placeholder="@bibisalgados"></label>
           <label class="campo"><span>Cidade</span><input name="cidade" id="aj-cidade" value="${esc(c.cidade)}"></label>
           <label class="campo campo-largo"><span>Frase de apresentação</span><textarea name="slogan" id="aj-slogan" rows="2">${esc(c.slogan)}</textarea></label>
-          <label class="campo campo-largo"><span>Horário de atendimento</span><input name="horario" id="aj-horario" value="${esc(c.horario)}"></label>
+          <fieldset class="campo-largo horario-editor">
+            <legend class="rotulo">Horário de atendimento</legend>
+            <div class="opcoes">
+              ${DIAS_DA_SEMANA.map(([n, curto, nome]) => `<label class="opcao"><input type="checkbox" name="dia" value="${n}" aria-label="${nome}" ${(c.diasAtendimento || []).map(Number).includes(n) ? 'checked' : ''}> ${curto}</label>`).join('')}
+            </div>
+            <div class="horas-atendimento">
+              <label class="campo"><span>Abre às</span><input type="time" name="abreAs" id="aj-abre" value="${esc(c.abreAs || '')}"></label>
+              <label class="campo"><span>Fecha às</span><input type="time" name="fechaAs" id="aj-fecha" value="${esc(c.fechaAs || '')}"></label>
+            </div>
+            <p class="previa-horario" id="aj-horario-previa" aria-live="polite">No site: ${esc(textoAtendimento(c))}</p>
+            <small class="suave">O site só aceita pedido nesses dias e horas, e o tempo para fritar corre dentro deles.</small>
+          </fieldset>
           <label class="campo campo-largo"><span>Onde vocês entregam</span><input name="areaEntrega" id="aj-area" value="${esc(c.areaEntrega)}"></label>
         </div>
       </section>
@@ -1295,7 +1447,7 @@ function telaAjustes() {
       <div class="acoes">
         <button class="btn btn-contorno" data-acao="baixar-backup">${icone('baixar')} Baixar backup</button>
         <button class="btn btn-contorno" data-acao="copiar-backup">${icone('copiar')} Copiar backup</button>
-        <label class="btn btn-contorno">${icone('enviar')} Restaurar backup<input type="file" id="arquivo-backup" accept="application/json,.json" hidden></label>
+        <label class="btn btn-contorno">${icone('enviar')} Restaurar backup<input type="file" id="arquivo-backup" accept="application/json,.json" class="so-leitor"></label>
       </div>
       <div id="area-restaurar">${htmlRestaurar()}</div>
       ${store.modo === 'local' ? `
@@ -1364,12 +1516,38 @@ function atualizarAjustesPagamento() {
   $('#aj-cobrar-aviso').textContent = aviso;
 }
 
+// Dias e horas de atendimento marcados nos Ajustes, e o que estiver errado neles.
+function horarioDoFormulario() {
+  const f = $('#form-ajustes').elements;
+  const h = {
+    diasAtendimento: [...document.querySelectorAll('#form-ajustes input[name="dia"]:checked')].map((i) => Number(i.value)).sort((a, b) => a - b),
+    abreAs: f.abreAs.value,
+    fechaAs: f.fechaAs.value,
+  };
+  let erro = '';
+  if (!h.diasAtendimento.length) erro = 'Marque pelo menos um dia de atendimento.';
+  else if (!h.abreAs || !h.fechaAs) erro = 'Diga a hora de abrir e a de fechar.';
+  else if (h.fechaAs <= h.abreAs) erro = 'A hora de fechar tem de ser depois da hora de abrir.';
+  return { ...h, erro };
+}
+
+// Como o horário vai aparecer no site, ou o que falta arrumar.
+function atualizarPreviaHorario() {
+  const h = horarioDoFormulario();
+  const el = $('#aj-horario-previa');
+  el.textContent = h.erro || `No site: ${textoAtendimento(h)}`;
+  el.classList.toggle('aviso-ajuste', Boolean(h.erro));
+  return h;
+}
+
 function htmlRestaurar() {
   const b = ui.backupPendente;
   if (!b) return '';
   return `
     <div class="confirmacao">
-      <p>Este backup tem ${plural(b.produtos.length, 'produto', 'produtos')} e ${plural(b.pedidos.length, 'pedido', 'pedidos')}. Restaurar substitui tudo o que está aqui agora.</p>
+      <p>${b.apresentacao
+        ? `Este backup tem ${plural(b.produtos.length, 'produto', 'produtos')}, ${plural(b.pedidos.length, 'pedido', 'pedidos')} e a página de apresentação. Restaurar substitui tudo o que está aqui agora.`
+        : `Este backup tem ${plural(b.produtos.length, 'produto', 'produtos')} e ${plural(b.pedidos.length, 'pedido', 'pedidos')}. Restaurar substitui tudo o que está aqui agora, menos a página de apresentação.`}</p>
       <div class="acoes">
         <button class="btn" data-acao="confirmar-restaurar">Substituir tudo</button>
         <button class="btn btn-contorno" data-acao="cancelar-restaurar">Cancelar</button>
@@ -1379,6 +1557,13 @@ function htmlRestaurar() {
 
 function salvarAjustes() {
   const f = $('#form-ajustes').elements;
+  const horario = atualizarPreviaHorario();
+  if (horario.erro) {
+    const alvo = !horario.diasAtendimento.length ? $('#form-ajustes input[name="dia"]') : !horario.abreAs ? f.abreAs : f.fechaAs;
+    alvo.focus();
+    aviso(horario.erro, 'erro');
+    return;
+  }
   const formas = [...document.querySelectorAll('#form-ajustes input[name="forma"]:checked')].map((i) => i.value);
   const outras = f.formasOutras.value.split(',').map((s) => s.trim()).filter(Boolean);
   const instagram = f.instagram.value.trim()
@@ -1396,7 +1581,11 @@ function salvarAjustes() {
     instagram,
     cidade: f.cidade.value.trim(),
     slogan: f.slogan.value.trim(),
-    horario: f.horario.value.trim(),
+    // O texto do horário sai dos dias e das horas, para ficar igual em todo o site.
+    horario: textoAtendimento(horario),
+    diasAtendimento: horario.diasAtendimento,
+    abreAs: horario.abreAs,
+    fechaAs: horario.fechaAs,
     areaEntrega: f.areaEntrega.value.trim(),
     aceitandoPedidos: f.aceitandoPedidos.checked,
     encomendaQuandoEsgotar: f.encomendaQuandoEsgotar.checked,
@@ -1419,8 +1608,36 @@ function salvarAjustes() {
   aviso('Ajustes salvos');
 }
 
-function baixarBackup() {
-  const json = JSON.stringify(exportarDados(dados()), null, 2);
+// O backup leva a página de apresentação, que na nuvem fica à parte.
+async function dadosDoBackup() {
+  let apresentacao = null;
+  try {
+    apresentacao = await store.lerApresentacao();
+  } catch (e) {
+    console.warn('Apresentação fora do backup:', e);
+  }
+  return exportarDados(dados(), apresentacao);
+}
+
+// Na nuvem a apresentação vem da internet, e o Safari do iPhone recusa copiar
+// depois de esperar por ela. Com ClipboardItem a cópia começa no toque e o
+// texto entra quando chegar. Sem ele, copia do jeito de sempre.
+async function copiarBackup() {
+  const texto = dadosDoBackup().then((d) => JSON.stringify(d));
+  if (window.ClipboardItem && navigator.clipboard?.write) {
+    try {
+      const blob = texto.then((t) => new Blob([t], { type: 'text/plain' }));
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+      return true;
+    } catch (e) {
+      console.warn('Cópia com espera recusada:', e);
+    }
+  }
+  return copiarTexto(await texto);
+}
+
+async function baixarBackup() {
+  const json = JSON.stringify(await dadosDoBackup(), null, 2);
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -1517,7 +1734,10 @@ function abrirJanela({ titulo, corpo, rodape, ...acoes }) {
   $('#janela-corpo').innerHTML = `<p class="erro-campo" id="janela-erro" role="alert" hidden></p>${corpo}`;
   $('#janela-rodape').innerHTML = rodape;
   const el = $('#janela');
-  if (!el.open) el.showModal();
+  if (!el.open) {
+    janela.voltar = lugarDoFoco();
+    el.showModal();
+  }
   el.scrollTop = 0;
   acoes.aoAbrir?.();
 }
@@ -1534,6 +1754,26 @@ function erroNaJanela(texto) {
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
+// Redesenhar parte da janela leva junto o botão que estava com o foco, e quem
+// usa o teclado iria parar no começo da página. Se o foco caiu fora da janela,
+// ele vai para o primeiro destes que estiver à vista (seletor ou elemento).
+function focoNaJanela(...alvos) {
+  const el = $('#janela');
+  const ativo = document.activeElement;
+  // Alguns navegadores deixam o foco na própria janela quando o botão some.
+  if (ativo && ativo !== el && el.contains(ativo)) return;
+  alvos.map((a) => (typeof a === 'string' ? $(a, el) : a)).find((x) => x?.getClientRects().length)?.focus();
+}
+
+// O item tirado de uma lista da janela some com o botão. O foco vai para a
+// linha que ficou no lugar dele (ou a de cima, se era a última), onde um Enter
+// a mais não faz nada, e nunca para o mesmo botão do item vizinho, que tiraria
+// outro salgado. Sem linhas, vai para a lista, que diz que ficou vazia.
+function focarLinha(lista, linha, i) {
+  const linhas = $(lista).querySelectorAll(linha);
+  focoNaJanela(linhas[i], linhas[i - 1], lista);
+}
+
 function campo(nome) {
   return $('#form-janela').elements[nome];
 }
@@ -1545,13 +1785,16 @@ function valor(nome) {
 
 function rodapeEditor({ podeExcluir = false, salvar = 'Salvar' } = {}) {
   return `
-    ${podeExcluir ? `<button type="button" class="btn btn-contorno rodape-esquerda" data-j="excluir" data-confirmar="Confirmar" aria-label="Excluir">${icone('lixeira')}<span class="rotulo-excluir">Excluir</span></button>` : ''}
+    ${podeExcluir ? `<button type="button" class="btn btn-contorno rodape-esquerda" data-j="excluir" data-confirmar="Toque de novo para excluir" aria-label="Excluir">${icone('lixeira')}<span class="rotulo-excluir">Excluir</span></button>` : ''}
     <button type="button" class="btn btn-contorno" data-j="fechar">Cancelar</button>
     <button type="submit" class="btn">${esc(salvar)}</button>`;
 }
 
 $('#janela').addEventListener('close', () => {
   janela.atual = null;
+  // O botão que abriu a janela pode ter sido redesenhado enquanto ela estava
+  // aberta: o foco volta para o equivalente, e não para o começo da página.
+  if (!$('#app').contains(document.activeElement)) devolverFoco(janela.voltar);
 });
 $('#janela').addEventListener('input', (e) => janela.atual?.aoDigitar?.(e));
 $('#janela').addEventListener('click', (e) => {
@@ -1562,7 +1805,7 @@ $('#janela').addEventListener('click', (e) => {
     return;
   }
   if (b.dataset.confirmar && precisaConfirmar(b)) return;
-  janela.atual?.aoClicar?.(b.dataset.j, b);
+  janela.atual?.aoClicar?.(b.dataset.j, b, e);
 });
 $('#form-janela').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1621,7 +1864,7 @@ function abrirPedido(id) {
 
     <div class="secao-janela">
       <h3>Itens</h3>
-      <div class="itens-editor" id="ped-itens"></div>
+      <div class="itens-editor" id="ped-itens" tabindex="-1"></div>
       ${produtos.length ? `
         <div class="adicionar-linha">
           <select id="ped-add" aria-label="Produto para adicionar">${opcoesProdutos}</select>
@@ -1648,11 +1891,11 @@ function abrirPedido(id) {
     <div class="secao-janela">
       <h3>Pagamento</h3>
       <div class="grade-campos">
-        <label class="campo"><span>Forma</span><select name="forma" id="ped-forma">${formas.map((f) => `<option ${p.pagamento?.forma === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></label>
+        <label class="campo"><span>Forma</span><select name="forma" id="ped-forma">${formas.map((f) => `<option value="${esc(f)}" ${p.pagamento?.forma === f ? 'selected' : ''}>${esc(formaMostrada(f, p.entrega?.tipo))}</option>`).join('')}</select></label>
         <label class="campo"><span>Desconto</span><span class="com-prefixo"><span>R$</span><input name="desconto" id="ped-desconto" inputmode="decimal" value="${dinheiroInput(p.desconto)}"></span></label>
       </div>
       <label class="check"><input type="checkbox" name="pago" id="ped-pago" ${p.pagamento?.pago ? 'checked' : ''}> Já foi pago</label>
-      <label class="campo" id="ped-pagoem" style="max-width:240px" ${p.pagamento?.pago ? '' : 'hidden'}><span>Pago em</span><input type="date" name="pagoEm" value="${esc(p.pagamento?.pagoEm || hojeISO())}"></label>
+      <label class="campo" id="ped-pagoem" style="max-width:15rem" ${p.pagamento?.pago ? '' : 'hidden'}><span>Pago em</span><input type="date" name="pagoEm" value="${esc(p.pagamento?.pagoEm || hojeISO())}"></label>
     </div>
 
     <div class="totais-editor" id="ped-totais"></div>
@@ -1677,10 +1920,12 @@ function abrirPedido(id) {
   // Link de pagamento no cartão pela InfinitePay, criado aqui mesmo.
   let linkCartao = '';
   let totalDoLink = 0;
+  // Taxa digitada antes de trocar para retirada, para voltar se trocar de novo.
+  let taxaGuardada = 0;
 
   function htmlItem(it, i) {
     return `
-      <div class="item-editor">
+      <div class="item-editor" tabindex="-1" role="group" aria-label="${esc(it.nome)}">
         <div>
           <div class="nome">${esc(it.nome)}</div>
           <div class="detalhe">${brl(it.preco)} ${esc(rotuloPreco(it))}<span data-un="${i}">${(Number(it.rende) || 1) > 1 ? ` · ${num(it.qtd * it.rende)} un` : ''}</span>${it.encomenda ? ` · <span class="texto-alerta">${esc(textoEncomenda(it))}</span>` : ''}</div>
@@ -1700,12 +1945,15 @@ function abrirPedido(id) {
     $('#ped-itens').innerHTML = p.itens.length ? p.itens.map(htmlItem).join('') : '<p class="suave">Nenhum item ainda.</p>';
   }
 
+  // Procura só na lista de itens da janela: a tela de trás também tem
+  // data-valor (o "Próximo mês" da Finanças, por exemplo).
   function atualizarItem(i) {
     const it = p.itens[i];
-    $(`[data-valor="${i}"]`).textContent = brl(it.preco * it.qtd);
-    const un = $(`[data-un="${i}"]`);
+    const lista = $('#ped-itens');
+    $(`[data-valor="${i}"]`, lista).textContent = brl(it.preco * it.qtd);
+    const un = $(`[data-un="${i}"]`, lista);
     if (un) un.textContent = (Number(it.rende) || 1) > 1 ? ` · ${num(it.qtd * it.rende)} un` : '';
-    $(`[data-unidade="${i}"]`).textContent = unidadeDoItem(it);
+    $(`[data-unidade="${i}"]`, lista).textContent = unidadeDoItem(it);
   }
 
   function totaisAtuais() {
@@ -1765,11 +2013,13 @@ function abrirPedido(id) {
       totalDoLink = t.total;
       desenharLinkCartao();
       desenharMensagens();
+      focoNaJanela('[data-j="copiar-link"]');
       aviso('Link criado. Ele já está na mensagem "Cobrar".');
     } catch (e) {
       console.warn(e);
       erroNaJanela(explicarErro(e));
       desenharLinkCartao();
+      focoNaJanela('[data-j="criar-link"]');
     }
   }
 
@@ -1795,7 +2045,8 @@ function abrirPedido(id) {
       ['Confirmar', `${ola} Seu pedido #${p.codigo} está confirmado para ${quando}. Total: ${brl(t.total)}.${valor('forma') === 'Pix' ? pix : ''} Obrigado pela preferência!`],
       ['Está pronto', `${ola} Seu pedido #${p.codigo} está pronto${entrega ? ' e já vai sair para entrega' : ' para retirar'}.`],
       entrega ? ['Saiu para entrega', `${ola} Seu pedido #${p.codigo} saiu para entrega e chega em breve.`] : null,
-      ['Cobrar', mensagemCobrar(ola, t.total, pix)],
+      // Pedido já pago não tem o que cobrar.
+      campo('pago').checked ? null : ['Cobrar', mensagemCobrar(ola, t.total, pix)],
     ].filter(Boolean);
     alvo.innerHTML = `<div class="mensagens-rapidas">${mensagens.map(([rotulo, texto]) => `
       <a class="btn btn-pequeno btn-contorno" href="${esc(linkWhats(tel, texto))}" target="_blank" rel="noopener">${icone('conversa')} ${rotulo}</a>`).join('')}</div>`;
@@ -1808,6 +2059,7 @@ function abrirPedido(id) {
     if (it.qtd === 0) {
       p.itens.splice(i, 1);
       desenharItens();
+      focarLinha('#ped-itens', '.item-editor', i);
     } else {
       $(`[name="qtd-item"][data-i="${i}"]`).value = numeroInput(it.qtd);
       atualizarItem(i);
@@ -1833,13 +2085,22 @@ function abrirPedido(id) {
         p.itens[i].qtd = Math.max(0, lerNumero(e.target.value));
         atualizarItem(i);
       } else if (nome === 'tipo') {
-        $('#ped-entrega').hidden = e.target.value !== 'entrega';
+        const entrega = e.target.value === 'entrega';
+        $('#ped-entrega').hidden = !entrega;
+        for (const o of campo('forma').options) o.textContent = formaMostrada(o.value, e.target.value);
+        // Como no pedido novo: entrega com a taxa dos Ajustes, retirada sem taxa.
+        if (!entrega) {
+          taxaGuardada = lerNumero(valor('taxaEntrega')) || taxaGuardada;
+          campo('taxaEntrega').value = dinheiroInput(0);
+        } else if (!(lerNumero(valor('taxaEntrega')) > 0)) {
+          campo('taxaEntrega').value = dinheiroInput(taxaGuardada || config().taxaEntrega);
+        }
       } else if (nome === 'pago') {
         $('#ped-pagoem').hidden = !e.target.checked;
         desenharLinkCartao();
       }
       atualizarTotais();
-      if (['nome', 'telefone', 'tipo', 'dataEntrega', 'hora', 'forma', 'taxaEntrega', 'desconto', 'qtd-item'].includes(nome)) desenharMensagens();
+      if (['nome', 'telefone', 'tipo', 'dataEntrega', 'hora', 'forma', 'taxaEntrega', 'desconto', 'qtd-item', 'pago'].includes(nome)) desenharMensagens();
     },
     aoClicar(acao, botao) {
       const i = Number(botao.dataset.i);
@@ -1864,6 +2125,7 @@ function abrirPedido(id) {
       } else if (acao === 'remover-item') {
         p.itens.splice(i, 1);
         desenharItens();
+        focarLinha('#ped-itens', '.item-editor', i);
         atualizarTotais();
         desenharMensagens();
       } else if (acao === 'criar-link') {
@@ -1939,14 +2201,14 @@ async function abrirApresentacao() {
     <div class="secao-janela">
       <h3>Fotos</h3>
       <p class="suave">Até ${MAX_FOTOS_APRESENTACAO} fotos. Cada uma é reduzida antes de guardar.</p>
-      <div class="ap-fotos" id="ap-fotos"></div>
-      <div class="acoes"><label class="btn btn-contorno" id="ap-add">${icone('mais')} Adicionar fotos<input type="file" name="fotos-novas" accept="image/*" multiple hidden></label></div>
+      <div class="ap-fotos" id="ap-fotos" tabindex="-1"></div>
+      <div class="acoes"><label class="btn btn-contorno" id="ap-add">${icone('mais')} Adicionar fotos<input type="file" name="fotos-novas" accept="image/*" multiple class="so-leitor"></label></div>
     </div>`;
 
   function desenharFotos() {
     $('#ap-fotos').innerHTML = a.fotos.length
       ? a.fotos.map((f, i) => `
-        <figure class="ap-foto">
+        <figure class="ap-foto" tabindex="-1">
           <img src="${esc(f)}" alt="Foto ${i + 1}">
           <button type="button" class="btn-icone" data-j="tirar-foto" data-i="${i}" aria-label="Tirar a foto ${i + 1}">${icone('lixeira')}</button>
         </figure>`).join('')
@@ -1972,13 +2234,22 @@ async function abrirApresentacao() {
       }
       desenharFotos();
     },
-    aoClicar(acao, botao) {
+    aoClicar(acao, botao, e) {
       if (acao === 'tirar-foto') {
-        a.fotos.splice(Number(botao.dataset.i), 1);
+        const i = Number(botao.dataset.i);
+        a.fotos.splice(i, 1);
         desenharFotos();
+        focarLinha('#ap-fotos', '.ap-foto', i);
       } else if (acao === 'usar-texto') {
-        campo('texto').value = TEXTO_SUGERIDO;
+        const texto = campo('texto');
+        texto.value = TEXTO_SUGERIDO;
         botao.closest('.acoes')?.remove();
+        // O botão some. Pelo teclado (detail 0), o foco vai para o texto, com o
+        // cursor no fim; no toque, não, para não abrir o teclado do celular.
+        if (e?.detail === 0) {
+          focoNaJanela(texto);
+          texto.setSelectionRange(texto.value.length, texto.value.length);
+        }
       }
     },
     aoSalvar() {
@@ -1995,6 +2266,19 @@ async function abrirApresentacao() {
 
 // ---------- Produto e ficha técnica ----------
 
+// De quantas em quantas o produto novo começa: o passo mais usado nos produtos
+// vendidos por unidade (o cardápio da Bibi é de 5 em 5); sem nenhum, 5.
+function passoMaisComum(produtos) {
+  const contagem = {};
+  for (const p of produtos) {
+    if ((Number(p.rende) || 1) > 1) continue;
+    const passo = Math.max(1, Math.round(Number(p.passo) || 1));
+    contagem[passo] = (contagem[passo] || 0) + 1;
+  }
+  const [maisComum] = Object.entries(contagem).sort((a, b) => b[1] - a[1])[0] || [5];
+  return Number(maisComum);
+}
+
 function abrirProduto(id) {
   const d = dados();
   const existente = id ? d.produtos.find((x) => x.id === id) : null;
@@ -2002,7 +2286,7 @@ function abrirProduto(id) {
   const categorias = [...new Set(d.produtos.map((x) => x.categoria).filter(Boolean))];
   const prod = existente ? structuredClone(existente) : {
     id: novoId('prod-'), nome: '', categoria: categorias[0] || 'Salgados fritos', descricao: '', preco: 0,
-    unidade: 'unidade', rende: 1, passo: 1, ativo: true,
+    unidade: 'unidade', rende: 1, passo: passoMaisComum(d.produtos), ativo: true,
     ordem: Math.max(0, ...d.produtos.map((x) => Number(x.ordem) || 0)) + 1,
   };
   const fichaExistente = d.fichas.find((f) => f.id === prod.id);
@@ -2010,7 +2294,10 @@ function abrirProduto(id) {
   const ingMap = porId(d.ingredientes);
   const ingredientes = [...d.ingredientes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const tipoVenda = (Number(prod.rende) || 1) <= 1 ? 'unidade' : prod.unidade === 'cento' ? 'cento' : 'pacote';
-  const estoqueInicial = numeroInput(Number(prod.estoque) || 0);
+  // "Prontos agora" mostra o que se conta na prateleira, e não o que sobra
+  // depois dos pedidos confirmados (que fica negativo quando falta produzir).
+  const estoqueInicial = numeroInput(prontosAgora(prod, d.pedidos));
+  const jaPedidos = reservasAoLigar(prod, d.pedidos).total;
   let foto = prod.foto || '';
 
   const corpo = `
@@ -2036,7 +2323,7 @@ function abrirProduto(id) {
       <div class="foto-produto">
         <img class="foto-previa" id="pr-foto" alt="Foto de ${esc(prod.nome || 'produto')}" ${prod.foto ? `src="${esc(prod.foto)}"` : 'hidden'}>
         <div class="foto-acoes">
-          <label class="btn btn-contorno btn-pequeno">${icone('camera')} <span id="pr-foto-rotulo">${prod.foto ? 'Trocar foto' : 'Pôr foto'}</span><input type="file" name="foto-arquivo" accept="image/*" hidden></label>
+          <label class="btn btn-contorno btn-pequeno">${icone('camera')} <span id="pr-foto-rotulo">${prod.foto ? 'Trocar foto' : 'Pôr foto'}</span><input type="file" name="foto-arquivo" accept="image/*" class="so-leitor"></label>
           <button type="button" class="btn btn-contorno btn-pequeno" id="pr-foto-tirar" data-j="tirar-foto" ${prod.foto ? '' : 'hidden'}>${icone('lixeira')} Tirar foto</button>
           <small class="suave">Aparece no cardápio. Quando todos os salgados da categoria têm foto, as fotos aparecem grandes.</small>
         </div>
@@ -2045,7 +2332,7 @@ function abrirProduto(id) {
       <label class="check"><input type="checkbox" name="ativo" ${prod.ativo !== false ? 'checked' : ''}> Mostrar na página de vendas</label>
       <label class="check"><input type="checkbox" name="controlarEstoque" ${controlaEstoque(prod) ? 'checked' : ''}> Controlar estoque (para o que fica pronto, como os congelados)</label>
       <div class="grade-campos" id="pr-estoque" ${controlaEstoque(prod) ? '' : 'hidden'}>
-        <label class="campo"><span>Prontos agora</span><span class="com-sufixo sufixo-largo"><input name="estoque" id="pr-estoque-qtd" inputmode="decimal" value="${estoqueInicial}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>${config().encomendaQuandoEsgotar !== false ? 'Quando acaba, o cliente ainda pode encomendar.' : 'Quando acaba, o site mostra Esgotado.'}</small></label>
+        <label class="campo"><span>Prontos agora</span><span class="com-sufixo sufixo-largo"><input name="estoque" id="pr-estoque-qtd" inputmode="decimal" value="${estoqueInicial}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>${jaPedidos ? `Há ${esc(qtdVenda(prod, jaPedidos))} em pedidos confirmados que ainda não saíram. Eles saem do que você disser aqui. ` : ''}${config().encomendaQuandoEsgotar !== false ? 'Quando acaba, o cliente ainda pode encomendar.' : 'Quando acaba, o site mostra Esgotado.'}</small></label>
         <label class="campo"><span>Estoque mínimo</span><span class="com-sufixo sufixo-largo"><input name="estoqueMinimo" id="pr-estoque-min" inputmode="decimal" value="${Number(prod.estoqueMinimo) > 0 ? numeroInput(prod.estoqueMinimo) : ''}"><span class="pr-sufixo">${esc(sufixoVenda(prod))}</span></span><small>Quando chegar nele, avisa na tela Hoje.</small></label>
       </div>
     </div>
@@ -2054,7 +2341,7 @@ function abrirProduto(id) {
       <h3>Ficha técnica</h3>
       <p class="suave">Liste os ingredientes de uma receita, do jeito que você faz numa leva, e quantos salgados ela rende. Ponha também as embalagens que a receita inteira usa, como 1 caixa para cada cento.</p>
       <label class="campo" style="max-width:260px"><span>A receita rende</span><span class="com-sufixo"><input name="rendimento" id="pr-rendimento" inputmode="numeric" value="${numeroInput(ficha.rendimento)}" placeholder="Ex.: 100"><span>salgados</span></span></label>
-      <div class="itens-editor" id="pr-ficha"></div>
+      <div class="itens-editor" id="pr-ficha" tabindex="-1"></div>
       ${ingredientes.length ? `
         <div class="adicionar-linha">
           <select id="pr-add" aria-label="Ingrediente para pôr na receita">${ingredientes.map((i) => `<option value="${esc(i.id)}">${esc(i.nome)}</option>`).join('')}</select>
@@ -2068,7 +2355,7 @@ function abrirProduto(id) {
 
     <div class="secao-janela">
       <h3>Custo e preço</h3>
-      <div class="resultado" id="pr-resultado"></div>
+      <div class="resultado" id="pr-resultado" tabindex="-1"></div>
     </div>`;
 
   function lerProduto() {
@@ -2121,7 +2408,7 @@ function abrirProduto(id) {
   function htmlLinhaFicha(it, i) {
     const ing = ingMap[it.ingredienteId];
     return `
-      <div class="ficha-linha">
+      <div class="ficha-linha" tabindex="-1" role="group" aria-label="${esc(ing?.nome || 'Ingrediente apagado')}">
         <strong>${esc(ing?.nome || 'Ingrediente apagado')}</strong>
         <span class="com-sufixo"><input name="qtd-ing" data-i="${i}" inputmode="decimal" value="${numeroInput(it.qtd)}" aria-label="Quantidade de ${esc(ing?.nome || '')}"><span>${esc(ing?.unidade || '')}</span></span>
         <button type="button" class="btn-icone" data-j="remover-ing" data-i="${i}" aria-label="Tirar ${esc(ing?.nome || '')}">${icone('lixeira')}</button>
@@ -2200,7 +2487,7 @@ function abrirProduto(id) {
       } else if (nome === 'qtd-ing') {
         const i = Number(e.target.dataset.i);
         ficha.itens[i].qtd = lerNumero(e.target.value);
-        $(`[data-custo="${i}"]`).textContent = brl(custoPorUnidadeBase(ingMap[ficha.itens[i].ingredienteId]) * ficha.itens[i].qtd);
+        $(`[data-custo="${i}"]`, $('#pr-ficha')).textContent = brl(custoPorUnidadeBase(ingMap[ficha.itens[i].ingredienteId]) * ficha.itens[i].qtd);
       }
       atualizarResultado();
     },
@@ -2213,15 +2500,20 @@ function abrirProduto(id) {
         const idx = ficha.itens.findIndex((i) => i.ingredienteId === ingId);
         $(`[name="qtd-ing"][data-i="${idx}"]`)?.focus();
       } else if (acao === 'remover-ing') {
-        ficha.itens.splice(Number(botao.dataset.i), 1);
+        const i = Number(botao.dataset.i);
+        ficha.itens.splice(i, 1);
         desenharFicha();
+        focarLinha('#pr-ficha', '.ficha-linha', i);
         atualizarResultado();
       } else if (acao === 'usar-sugerido') {
         campo('preco').value = dinheiroInput(Number(botao.dataset.valor));
         atualizarResultado();
+        // Com o preço bom o botão some: o foco fica no resultado, que diz isso.
+        focoNaJanela('[data-j="usar-sugerido"]', '#pr-resultado');
       } else if (acao === 'tirar-foto') {
         foto = '';
         mostrarFoto();
+        focoNaJanela('input[name="foto-arquivo"]');
       } else if (acao === 'excluir') {
         store.excluir('produtos', prod.id);
         if (fichaExistente) store.excluir('fichas', prod.id);
@@ -2240,14 +2532,26 @@ function abrirProduto(id) {
       // só troca o número se a pessoa mexeu nele.
       const atual = dados().produtos.find((x) => x.id === prod.id);
       const texto = valor('estoque').trim();
+      // Com o estoque desligado o campo fica escondido, e o que está nele não conta.
+      const contou = novo.controlarEstoque && texto !== estoqueInicial;
       if (novo.controlarEstoque || atual?.estoque != null) {
-        novo.estoque = texto !== estoqueInicial ? lerNumero(texto) : (Number(atual?.estoque) || 0);
+        novo.estoque = contou ? lerNumero(texto) : (Number(atual?.estoque) || 0);
       }
-      store.salvar('produtos', novo);
+      // O número digitado é uma contagem, ligando o estoque agora ou não: perde
+      // tudo o que os pedidos confirmados que ainda não saíram seguram, como na
+      // tela Estoque. Ligando sem mexer no número, o guardado perde só o que eles
+      // passam a segurar agora.
+      const ligando = novo.controlarEstoque && !controlaEstoque(atual);
+      const reservas = contou || ligando ? reservasAoLigar(novo, dados().pedidos) : { pedidos: [], total: 0, novos: 0 };
+      const separado = contou ? reservas.total : reservas.novos;
+      if (separado) novo.estoque = Math.round((novo.estoque - separado) * 1000) / 1000;
+      if (reservas.pedidos.length) store.emConjunto({ salvar: [['produtos', novo], ...reservas.pedidos.map((x) => ['pedidos', x])] });
+      else store.salvar('produtos', novo);
       if (f.itens.length) store.salvar('fichas', f);
       else if (fichaExistente) store.excluir('fichas', prod.id);
       fecharJanela();
-      aviso('Produto salvo');
+      // O aviso explica o número pelo total que os pedidos seguram, não só pelo que entrou agora.
+      aviso(separado ? `Produto salvo: ${textoDoEstoque(novo, novo.estoque)}, porque ${qtdVenda(novo, reservas.total)} já são de pedidos confirmados` : 'Produto salvo');
     },
   });
 }
@@ -2376,11 +2680,15 @@ function abrirEstoqueProduto(id) {
   const novos = emPedidosNovos(d.pedidos, porId(d.produtos))[prod.id] || 0;
   const sufixo = sufixoVenda(prod);
   const ctx = contexto(d);
+  // Os pedidos confirmados que ainda não saíram levam a parte deles do que for
+  // contado, com o estoque ligado ou não. Ao ligar, também do que produziu.
+  const jaPedidos = reservasAoLigar(prod, d.pedidos).total;
 
   const corpo = `
     <label class="check"><input type="checkbox" name="controlar" id="est-controlar" ${controla ? 'checked' : ''}> Controlar o estoque deste produto</label>
     <div class="secao-janela" id="est-campos" ${controla ? '' : 'hidden'}>
       ${controla ? `<p class="estoque-agora">Agora: <strong>${esc(tem < 0 ? `faltam ${qtdVenda(prod, -tem)}` : qtdVenda(prod, tem))}</strong>${novos ? `<br><span class="suave">${esc(qtdVenda(prod, novos))} em pedidos novos, que saem quando você confirmar</span>` : ''}</p>` : ''}
+      ${jaPedidos ? `<p class="nota" id="est-pedidos">Há ${esc(qtdVenda(prod, jaPedidos))} em pedidos confirmados que ainda não saíram. Eles saem do que você disser aqui.</p>` : ''}
       <div class="opcoes">
         <label class="opcao"><input type="radio" name="modo" value="produzi" ${controla ? 'checked' : ''}> Produzi mais</label>
         <label class="opcao"><input type="radio" name="modo" value="contei" ${controla ? '' : 'checked'}> Contei o que tem</label>
@@ -2395,6 +2703,12 @@ function abrirEstoqueProduto(id) {
     $('#est-campos').hidden = !ligado;
     const produzi = valor('modo') === 'produzi';
     $('#est-rotulo').textContent = produzi ? 'Quanto produziu' : 'Quanto tem pronto agora';
+    // Com o estoque já ligado, o que produziu só soma: esses pedidos já saíram dele.
+    // Quando o aviso vale, o leitor de tela o lê junto com o campo da quantidade.
+    const notaPedidos = $('#est-pedidos');
+    if (notaPedidos) notaPedidos.hidden = controla && produzi;
+    if (notaPedidos && !notaPedidos.hidden) campo('quantidade').setAttribute('aria-describedby', 'est-pedidos');
+    else campo('quantidade').removeAttribute('aria-describedby');
     const qtd = lerNumero(valor('quantidade'));
     const nota = $('#est-gasto');
     nota.hidden = !(ligado && produzi && qtd > 0);
@@ -2424,25 +2738,33 @@ function abrirEstoqueProduto(id) {
         return;
       }
       const campos = { controlarEstoque: true, estoqueMinimo: Math.max(0, lerNumero(valor('minimo'))) };
-      if (valor('modo') === 'contei') {
+      const contei = valor('modo') === 'contei';
+      // A contagem diz quanto tem pronto de fato, e os pedidos confirmados que
+      // ainda não saíram levam a parte deles, como ao ligar o estoque. Eles
+      // guardam a reserva e, quando forem entregues, o estoque não muda.
+      const reservas = contei || !controla ? reservasAoLigar(prod, dados().pedidos) : { pedidos: [], total: 0 };
+      const salvar = reservas.pedidos.map((x) => ['pedidos', x]);
+      const separado = reservas.total ? `, porque ${qtdVenda(prod, reservas.total)} já são de pedidos confirmados` : '';
+      if (contei) {
         if (!texto) return erroNaJanela('Diga quanto tem pronto agora. Pode ser zero.');
-        campos.estoque = Math.max(0, qtd);
-        store.emConjunto({ mudar: [['produtos', prod.id, campos]] });
+        campos.estoque = Math.round((Math.max(0, qtd) - reservas.total) * 1000) / 1000;
+        store.emConjunto({ salvar, mudar: [['produtos', prod.id, campos]] });
         fecharJanela();
-        aviso(`${prod.nome}: ${qtdVenda(prod, campos.estoque)} no estoque`);
+        aviso(`${prod.nome}: ${textoDoEstoque(prod, campos.estoque)}${separado}`);
         return;
       }
       if (texto && !(qtd > 0)) return erroNaJanela('Diga quanto produziu.');
       if (!controla && !texto) return erroNaJanela('Diga quanto produziu, ou escolha "Contei o que tem".');
       let somar = qtd > 0 ? movimentoDaProducao(prod, qtd, ctx) : [];
       if (!controla) {
-        // Primeira vez: o que produziu é o que tem.
-        campos.estoque = qtd;
+        // Primeira vez: o que produziu é o que tem, menos o que os pedidos confirmados seguram.
+        campos.estoque = Math.round((qtd - reservas.total) * 1000) / 1000;
         somar = somar.filter(([colecao]) => colecao === 'ingredientes');
       }
-      store.emConjunto({ mudar: [['produtos', prod.id, campos]], somar });
+      store.emConjunto({ salvar, mudar: [['produtos', prod.id, campos]], somar });
       fecharJanela();
-      aviso(qtd > 0 ? `${prod.nome}: mais ${qtdVenda(prod, qtd)} no estoque` : 'Estoque salvo');
+      if (!controla) aviso(`${prod.nome}: ${textoDoEstoque(prod, campos.estoque)}${separado}`);
+      else aviso(qtd > 0 ? `${prod.nome}: mais ${qtdVenda(prod, qtd)} no estoque` : 'Estoque salvo');
     },
   });
 }
@@ -2594,12 +2916,15 @@ function abrirLancamento(id, inicial = {}) {
     el.textContent = dicas[cat] || '';
   }
 
-  const titulo = existente ? 'Editar lançamento'
-    : inicial.categoria === RETIRADA ? 'Registrar retirada'
-      : tipoInicial === 'entrada' ? 'Nova entrada' : 'Nova despesa';
+  // O título acompanha o tipo e a categoria escolhidos.
+  function tituloDoLancamento(tipo, categoria) {
+    if (categoria === RETIRADA) return existente ? 'Editar retirada' : 'Registrar retirada';
+    if (tipo === 'entrada') return existente ? 'Editar entrada' : 'Nova entrada';
+    return existente ? 'Editar despesa' : 'Nova despesa';
+  }
 
   abrirJanela({
-    titulo,
+    titulo: tituloDoLancamento(l.tipo, l.categoria),
     corpo,
     rodape: rodapeEditor({ podeExcluir: Boolean(existente) }),
     aoAbrir() {
@@ -2610,6 +2935,7 @@ function abrirLancamento(id, inicial = {}) {
       if (e.target.name === 'tipo') {
         campo('categoria').innerHTML = opcoesCategoria(e.target.value, CATEGORIAS_LANCAMENTO[e.target.value][0]);
       }
+      $('#janela-titulo').textContent = tituloDoLancamento(valor('tipo'), valor('categoria'));
       atualizarDica();
     },
     aoClicar(acao) {
@@ -2622,6 +2948,9 @@ function abrirLancamento(id, inicial = {}) {
       const v = lerNumero(valor('valor'));
       if (!(v > 0)) return erroNaJanela('Coloque o valor.');
       if (!valor('data')) return erroNaJanela('Escolha a data.');
+      // O mês muda antes de salvar: no modo local a tela redesenha na hora, e
+      // o lançamento de outro mês tem de aparecer.
+      ui.mes = mesISO(valor('data'));
       store.salvar('lancamentos', {
         ...l,
         tipo: valor('tipo'),
@@ -2630,7 +2959,6 @@ function abrirLancamento(id, inicial = {}) {
         categoria: valor('categoria'),
         descricao: valor('descricao').trim(),
       });
-      ui.mes = mesISO(valor('data'));
       fecharJanela();
       aviso('Lançamento salvo');
     },
@@ -2748,10 +3076,16 @@ document.addEventListener('click', async (e) => {
       desenhar();
       break;
     }
-    case 'sim-remover':
+    case 'sim-remover': {
+      // Pelo teclado, a lixeira que fica no lugar é a de outro salgado, e um
+      // Enter a mais o tiraria: o foco vai para o salgado da linha que ficou ali.
+      const peloTeclado = botao === document.activeElement && botao.matches(':focus-visible');
       ui.simulacao.splice(Number(v), 1);
       desenhar();
+      const linha = Math.min(Number(v), ui.simulacao.length - 1);
+      if (peloTeclado) $(`[data-sim="produto"][data-i="${linha}"]`)?.focus({ preventScroll: true });
       break;
+    }
     case 'copiar-simulacao':
       aviso(await copiarTexto(textoDaSimulacao()) ? 'Lista copiada. Cole no WhatsApp ou nas notas.' : 'Não deu para copiar neste aparelho.');
       break;
@@ -2776,7 +3110,7 @@ document.addEventListener('click', async (e) => {
     case 'apagar-exemplos': await apagarExemplos(); break;
     case 'baixar-backup': baixarBackup(); break;
     case 'copiar-backup':
-      aviso(await copiarTexto(JSON.stringify(exportarDados(dados()))) ? 'Backup copiado. Cole num e-mail ou nas notas para guardar.' : 'Não deu para copiar neste aparelho.');
+      aviso(await copiarBackup() ? 'Backup copiado. Cole num e-mail ou nas notas para guardar.' : 'Não deu para copiar neste aparelho.');
       break;
     case 'confirmar-restaurar':
       if (ui.backupPendente) {
@@ -2792,10 +3126,14 @@ document.addEventListener('click', async (e) => {
       $('#area-restaurar').innerHTML = '';
       break;
     case 'restaurar-exemplo':
+      // Os ajustes também voltam ao exemplo: o que estava sendo mudado sai.
+      ui.ajustesSujo = false;
       await store.restaurarExemplo();
       aviso('Dados de exemplo restaurados');
       break;
     case 'sair':
+      if (!podeSairDosAjustes('sair')) break;
+      ui.ajustesSujo = false;
       await store.sair();
       break;
     default:
@@ -2817,6 +3155,7 @@ document.addEventListener('input', (e) => {
     ui.ajustesSujo = true;
     $('#barra-salvar').hidden = false;
     atualizarAjustesPagamento();
+    atualizarPreviaHorario();
   } else if (e.target.dataset.sim) {
     // Simulação de compra: muda só o resultado, para não perder o que está sendo digitado.
     const linha = ui.simulacao[Number(e.target.dataset.i)];

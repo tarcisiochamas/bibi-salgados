@@ -59,7 +59,15 @@ function normalizar(bruto) {
   for (const c of COLECOES) d[c] = Array.isArray(bruto[c]) ? bruto[c].filter((x) => x && x.id) : [];
   // Página de apresentação (texto e fotos). Na nuvem ela fica num documento
   // separado, config/apresentacao, para as fotos não pesarem no cardápio.
-  if (bruto.apresentacao && typeof bruto.apresentacao === 'object') d.apresentacao = bruto.apresentacao;
+  // Vem também do backup, então só passa no formato que a página Sobre lê.
+  if (bruto.apresentacao && typeof bruto.apresentacao === 'object') {
+    const a = bruto.apresentacao;
+    d.apresentacao = {
+      titulo: String(a.titulo || ''),
+      texto: String(a.texto || ''),
+      fotos: Array.isArray(a.fotos) ? a.fotos.filter((f) => typeof f === 'string') : [],
+    };
+  }
   return d;
 }
 
@@ -67,10 +75,22 @@ export function abrirStore({ publico = false } = {}) {
   return FIREBASE_CONFIG ? abrirNuvem({ publico }) : abrirLocal();
 }
 
-export function exportarDados(dados) {
+// O backup leva também a página de apresentação (texto e fotos), que na nuvem
+// fica num documento à parte: quem chama passa a que leu com lerApresentacao().
+export function exportarDados(dados, apresentacao = dados.apresentacao) {
   const saida = { app: 'bibi-salgados', versao: 1, exportadoEm: new Date().toISOString(), config: dados.config };
   for (const c of COLECOES) saida[c] = dados[c];
+  if (apresentacao) saida.apresentacao = apresentacao;
   return saida;
+}
+
+// Restaurar com a página de apresentação do backup: o link do site para ela
+// segue o que ela tem. Backup sem ela (os antigos não tinham): a que existe
+// fica, e o link também.
+function manterApresentacao(novos, atual) {
+  const a = novos.apresentacao;
+  const pronta = a ? Boolean(String(a.texto || '').trim() || a.fotos?.length) : atual.config?.apresentacaoPronta;
+  return { ...novos, config: { ...novos.config, apresentacaoPronta: pronta } };
 }
 
 export function validarBackup(json) {
@@ -159,7 +179,9 @@ async function abrirLocal() {
       persistir();
     },
     async substituirTudo(novos) {
-      dados = normalizar(limpar(novos));
+      const apresentacao = dados.apresentacao;
+      dados = normalizar(limpar(manterApresentacao(novos, dados)));
+      if (!dados.apresentacao && apresentacao) dados.apresentacao = apresentacao;
       persistir();
     },
     async comecarComCardapio() {
@@ -396,7 +418,9 @@ async function abrirNuvemGestao(fs, db, authMod, app) {
       gravar(fs.setDoc(fs.doc(db, 'config', 'negocio'), novo));
     },
     async substituirTudo(novos) {
-      await gravarConjunto(novos);
+      await gravarConjunto(manterApresentacao(novos, dados));
+      // A apresentação fica num documento à parte; sem ela no backup, a que existe fica.
+      if (novos.apresentacao) await fs.setDoc(fs.doc(db, 'config', 'apresentacao'), limpar(novos.apresentacao));
     },
     async comecarComCardapio() {
       await gravarConjunto(comCardapioInicial(dados));
